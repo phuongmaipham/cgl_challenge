@@ -1,0 +1,150 @@
+Signal explanation
+==================
+
+Economic rationale
+------------------
+The strategy combines five types of information that should matter for grain
+futures:
+
+1. Price trend and reversal
+   Grain futures often trend when weather, supply, or demand shocks persist, but
+   very short-term moves can also mean-revert. The model therefore includes
+   medium-term momentum and short-term reversal features.
+
+2. Calendar curve
+   The C1-C2 spread and ratio proxy nearby tightness. Backwardation can indicate
+   scarcity or strong nearby demand, while contango can indicate easier supply or
+   storage pressure.
+
+3. COT positioning
+   Money-manager net positions capture speculative crowding. Producer/merchant
+   positions normalized by open interest capture commercial hedging pressure.
+   Both levels and changes are included because extremes and flows can matter in
+   different regimes.
+
+4. Public physical data
+   Inventories and receipts capture supply available at terminals, elevators, and
+   crush plants. Changes and z-scores are intended to identify whether physical
+   conditions are looser or tighter than normal.
+
+5. Cargill internal data
+   Cargill inventory and crush activity may contain faster or cleaner information
+   about physical flows. The implementation includes both cgl_inv and cgl_crush
+   because the instructions explicitly require attempting to use them.
+
+Model choice
+------------
+The improved implementation uses two Ridge regressions per commodity. The core
+model uses price, curve, and COT features. The physical overlay uses public
+inventory/receipt changes plus Cargill inventory and crush features. Both models
+predict five-day forward one-lot PnL, which is less noisy than next-day PnL.
+Ridge is appropriate because the feature set is correlated and it is easy to
+explain, debug, and implement in Python 3.6 using only numpy.
+
+Position construction
+---------------------
+The model predicts five-day forward one-lot dollar PnL for each commodity. Predictions
+are divided by recent realized PnL volatility, demeaned across commodities, and
+scaled to one aggregate gross lot. This makes the portfolio mostly relative-value
+rather than a broad long-or-short grain bet.
+
+The final version adds an edge filter. It measures the daily cross-sectional
+dispersion of risk-adjusted predictions and trades only when that edge score is
+above its own expanding, one-day-lagged historical median. This reduced exposure
+in lower-conviction periods and improved the period-level results.
+
+To guard against overfit, the notebook also reports an expanding walk-forward
+version. It retrains annually using only prior data and predicts a slower 20-day
+target. This is the main robustness check, while the static model is the
+candidate implementation.
+
+What works in the supplied sample
+---------------------------------
+The five-day curve/COT core is the strongest improvement. The physical overlay
+also helps, especially when it is strongly regularized. The edge filter improves
+the 2018-2020 out-of-sample Sharpe further by avoiding low-dispersion prediction
+days.
+
+What does not work in the supplied sample
+----------------------------------------
+The broad one-day Ridge model does not work. It overfits the training period and
+loses money after 2018. The lesson is that all-feature next-day prediction is too
+noisy for this small dataset.
+
+The US-China trade-war regime remains the main weakness. Soybean attribution was
+negative during that period. I did not add a special trade-war rule because that
+would be too event-specific and unlikely to generalize cleanly.
+
+The annual walk-forward check is still weaker before 2018 than after 2018, so
+the strategy should not be presented as fully proven. It should be presented as a
+candidate signal with positive walk-forward evidence and a clear need for the
+2021-2026 holdout test.
+
+Alternatives tested but not used
+--------------------------------
+I tested statsmodels OLS and a Kalman-style recursive least-squares model with
+cross-validated meta parameters. The corrected Kalman/RLS version did not beat
+the annual Ridge walk-forward. OLS improved some full-period statistics but had
+weaker out-of-sample performance. These models are documented in the experiment
+log but are not part of the final strategy.
+
+I also tested seasonal physical-data z-scores, soybean-specific crush exposure,
+and directional/hybrid portfolio construction. Seasonal features are promising
+as a future extension, but they did not improve the main out-of-sample objective
+on the current data. Soybean-only crush and directional portfolio variants were
+weaker than the current cross-sectional strategy.
+
+I also adapted several ideas from oil/gas/FX research: EWMA smoothing, weak
+signal thresholds, top-N portfolios, vol targeting, crisis caps, and a
+stress-dependent trend/mean-reversion rule sleeve. The rule sleeve was
+interesting but had too much drawdown and turnover. It is not part of the final
+strategy.
+
+The final strategy is daily rebalanced, despite using multi-day forecast
+targets. Explicit 2/3/5/10/20-day holding periods were tested. A 2-day rebalance
+helped the static candidate but did not improve the walk-forward validation
+enough to replace daily rebalancing.
+
+After cleanup, the holding-period experiment is reproducible from
+`run_holding_period_experiment`. The static edge-filtered 2-day skip-rebalance
+variant is the best execution candidate, but the walk-forward anti-overfit check
+still favors daily rebalancing.
+
+I also tested equal family weighting across price, positioning, and fundamentals.
+That avoids accidentally giving more raw weight to the family with more columns,
+but it reduced out-of-sample performance in this dataset, so it remains a
+diagnostic rather than the final implementation.
+
+I also tested sklearn machine-learning alternatives under annual walk-forward
+retraining. The best ML result was shallow Gradient Boosting with median
+imputation and missing-value indicators. It reached OOS Sharpe 1.274, but did
+not beat the annual Ridge walk-forward benchmark at OOS Sharpe 1.347. Because
+nonlinear ML adds more overfit risk on a small four-commodity sample with sparse
+physical features, ML is not part of the final signal.
+
+I also added an explicit spread-instrument experiment. Calendar spreads are
+tested as long front/short second futures PnL, and inter-commodity spreads are
+tested as volatility-hedged grain pairs. Calendar spreads were too weak on this
+dataset. Inter-commodity spreads worked better as a small overlay: an 80%
+outright / 20% inter-commodity mix improved OOS Sharpe and drawdown, but reduced
+OOS PnL. Therefore it is an extension candidate, not a replacement for the final
+outright strategy.
+
+Cargill data usage: the main outright strategy uses both `cgl_inv` and
+`cgl_crush` in the physical overlay. Some diagnostic spread/factor experiments
+use `cgl_inv` but not `cgl_crush` because the crush file is aggregate
+processed/planned data, not a clean tradable spread-leg input.
+
+The best later filter test was a multi-condition opportunity filter. It trades
+only when prediction dispersion, curve dispersion, and momentum dispersion are
+all above expanding thresholds. The validation-selected version improves the
+negative US-China trade-war period and the whole OOS Sharpe, but lowers total
+OOS PnL because it trades fewer days. This makes it a high-conviction version of
+the strategy rather than a higher-capacity version.
+
+Regime considerations
+---------------------
+Physical-flow signals may work best when inventories, receipts, or crush activity
+are binding constraints for nearby supply and demand. They may work less well in
+macro-driven, weather-driven, or policy-driven periods where futures prices move
+for reasons not captured by local stock and flow data.

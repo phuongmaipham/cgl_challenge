@@ -1,0 +1,133 @@
+1. Goal: build a full futures signal/backtest notebook from this dataset. The strongest direction is probably a multi-commodity grain futures strategy that combines price/curve behavior with positioning and physical supply-flow features.
+
+Good things to build:
+
+1.1. Baseline momentum / mean-reversion signals
+
+Use adjPrices1 returns for tradable PnL.
+Build signals from recent returns: 5d, 20d, 60d momentum or reversal.
+This gives you a benchmark to beat.
+
+1.2. Calendar spread / curve signals
+
+Use unadjPrices1 and unadjPrices2.
+Compute C1-C2 spread, ratio, carry, contango/backwardation proxies.
+Useful because grains often react to inventory pressure, seasonality, and nearby tightness.
+
+1.3. COT positioning signals
+
+Use cot_mm: money manager net long/short.
+Use cot_pm_oi: producer/merchant net position normalized by open interest.
+Possible features:
+extreme speculative length/shortness
+weekly changes in positioning
+z-scores by commodity
+Could support contrarian or trend-following signals.
+
+1.4. Inventory and receipt signals
+
+Use inventories, receipts, cgl_inv.
+Build storage/flow surprise-style features:
+week-over-week changes
+rolling z-scores
+seasonal deviations from normal
+These are likely among the more interesting features because they connect physical supply/demand to futures prices.
+
+1.5. Cargill internal activity signals
+
+Use cgl_crush: processed, planned, and processed - planned.
+This seems especially relevant for soybean demand/crush activity.
+You could test whether high planned or unexpectedly high processed crush predicts soybean returns.
+
+1.6. Lag-aware feature pipeline
+
+Very important: respect availability.
+Public inventories: timestamp + 2 days.
+Receipts: timestamp + 2 days.
+Cargill inventory/crush: timestamp + 1 day.
+COT weekly data should also be lagged conservatively.
+This would make the notebook interview-safe because it avoids lookahead bias.
+
+1.7. Cross-sectional strategy
+
+Each day, rank commodities by signal.
+Long strongest, short weakest, or allocate proportional to signal.
+This helps reduce market beta and focuses on relative value among grains.
+
+1.8. Single-commodity directional strategy
+
+Build independent signals for each commodity.
+Position each one long/short/flat based on normalized features.
+Easier to explain and debug.
+
+1.9.Regularized ML model
+
+Create lagged features from all datasets.
+Predict next 1d, 5d, or 20d adjusted returns.
+Use simple models:
+Ridge/Lasso regression
+ElasticNet
+Random Forest / Gradient Boosting if allowed
+I’d start with regularized linear models because they are easier to explain in an interview.
+
+
+2. A complete Jupyter deliverable
+
+2.1. Data loading
+2.2. Feature engineering with release lags
+2.3. Train/validation split by time
+2.4. Signal construction
+2.5. Backtest
+2.6. Computes PnL using adjusted prices
+2.7. Performance metrics: Sharpe, CAGR-ish PnL, max drawdown, turnover, hit rate, shows in-sample and out-of-sample results
+2.8. Feature importance / coefficient interpretation
+2.9. Out-of-sample-ready code that accepts updated files through Feb 2026
+2.10. Includes your research notes details in a txt file (file 1), including failed ideas. Explain your thinking process, why did you test those signals/algo/ideas, why did you proceed to text the next signals, why a signal is included etc
+2.11. Include explanation for the signals used in a txt file (file 2), explain: the economic rationale behind the signals that works, what works, what doesn't work. The regimes. If you use any algo such as OLS, Kalman filter or other, you have to also explain why you use them 
+2.12. Include a txt file (file 3) that explain the dataset in details
+
+Impotant: USE PYTHON 3.6
+So you must attempt to use:
+cgl_inv
+cgl_crush
+
+
+3. The dataset explaination
+The train_set is a small CSV dataset for a grain futures signal/trading challenge. It contains daily/weekly time series for four commodities:
+
+CORN, SOYABEAN, WHEAT_SRW, WHEAT_HRW
+
+Files are in train_set:
+
+File	Shape	Date range	Frequency-ish	What it contains
+train_adjPrices1.csv	2866 x 4	2010-01-04 to 2020-12-31	business/daily	Rolled adjusted C1 prices, usable for PnL via .diff() * 5000
+train_adjPrices2.csv	2866 x 4	2010-01-04 to 2020-12-31	business/daily	Rolled adjusted C2 prices
+train_unadjPrices1.csv	2866 x 4	2010-01-04 to 2020-12-31	business/daily	Unadjusted rolled C1 prices
+train_unadjPrices2.csv	2866 x 4	2010-01-04 to 2020-12-31	business/daily	Unadjusted rolled C2 prices
+train_cot_mm.csv	581 x 4	2010-01-05 to 2020-12-29	weekly	COT net money manager positions, long minus short
+train_cot_pm_oi.csv	576 x 4	2010-01-05 to 2020-12-29	weekly	COT producer/merchant net position divided by open interest
+train_inventories.csv	835 x 4	2005-01-04 to 2020-12-29	weekly	Public grain stocks at terminals/elevators/crush plants
+train_receipts.csv	1127 x 4	2016-07-12 to 2020-12-31	daily-ish	Public cumulative net receipts, entering minus exiting
+train_cgl_inv.csv	2771 x 4	2010-01-04 to 2020-12-31	business/daily	Cargill internal grain stocks
+train_cgl_crush.csv	1858 x 2	2015-12-01 to 2020-12-31	daily	Cargill crush plant activity: processed, planned
+A few modeling notes from instruction.txt:
+
+Public inventories are released Tuesdays, 2 days after the stamped date.
+Public receipts are available T+2.
+Cargill inventory and crush data are available T+1.
+Missing data is very light overall: only cot_mm, cot_pm_oi, inventories, and cgl_inv have small gaps.
+
+
+- adjPrices1/2 are the PnL-safe price series. Use adjPrices.diff() * 5000 for 1-lot dollar returns. adjPrices 1&2 are the above prices adjusted for rolling contracts, meaning you can use adjPrices.diff() to compute a $returns for 1 lot if you multiply by 5000 bushels, and this is valid on the whole time series without further adjustment ie adjPrices.diff().sum()*5000 would be the actual return of holding 1 lot the entire time
+
+- unadjPrices1/2 are raw rolled C1/C2 prices, useful for spreads/curve features but not direct continuous PnL. unadjPrices 1&2 are simply the price of a c1 and c2 rolled prices (does not matter the exact triggers for roll, kind of oi/volume based)
+
+ 
+- cot_mm data is the net money managers position (long-short)
+- cot_pm_oi data is the net producers/merchants managers position divided by oi (long-short)/oi
+ 
+- inventories is a public dataset indicating the total stocks of commodities on terminals, elevators and crush plants. it's released in session on Tuesdays (ie 2 days after the stamping)
+- receipts is a public dataset indicating the cumulated net number of receipts (entering-exiting) at terminals, elevators and crush plants. it's released T+2 (ie 2 day after the stamping)
+ 
+- cgl_inv is Cargill stock of grains at our own terminals, elevators and crush plants. It's available T+1
+- cgl_crush is Cargill activity at crush plants, one quantity is what was desired to crush, and the other one is what actually happened. It's available T+1.

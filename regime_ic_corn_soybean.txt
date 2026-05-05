@@ -1,0 +1,74 @@
+Regime-conditional IC sleeve experiments
+Date: 2026-05-02
+
+Method
+------
+- Test IC separately inside low/normal/high volatility buckets.
+- Test IC separately inside trend vs mean-reversion-or-chop buckets.
+- Inside each bucket, select individual signals by train IC threshold.
+- Build fixed equal-weight family candidates from surviving signals.
+- Select candidate by validation IC inside the same bucket.
+- Combine the selected bucket signals with observable regime masks.
+- Report 2018-2020 OOS backtest and compare with the flat IC experiment.
+
+Corn regime IC results
+======================
+External data warnings: none
+
+vol regime group
+----------------
+    regime          candidate      mode                               families  eligible  score  train_ic  validation_ic  test_ic  train_obs  validation_obs  test_obs
+   low_vol selected_all_equal long_only price,physical,fx_export,weather,macro     False   -inf     0.055         -0.029    0.029        632             390       491
+normal_vol selected_all_equal long_only          price,fx_export,weather,macro      True  0.029     0.040          0.019    0.015        622             130       231
+
+    candidate       mode  cost_adjusted  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+regime_ic_vol long_short          False        0.834   246.489           -234.449        0.269      -489.607
+regime_ic_vol long_short           True        0.759   224.331           -242.872        0.208      -515.704
+
+trend regime group
+------------------
+    regime              candidate       mode           families  eligible  score  train_ic  validation_ic  test_ic  train_obs  validation_obs  test_obs
+     trend      physical_fx_equal  long_only physical,fx_export      True  0.154     0.052          0.141   -0.053        753             264       494
+mr_or_chop physical_ethanol_equal long_short   physical,ethanol      True  0.061     0.040          0.051    0.018        812             256       287
+
+      candidate       mode  cost_adjusted  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+regime_ic_trend long_short          False        0.629   494.112           -349.773        0.622      -367.388
+regime_ic_trend long_short           True        0.525   411.651           -368.830        0.544      -392.612
+
+Comparison summary
+------------------
+      candidate       mode  cost_adjusted  train_sharpe  validation_sharpe  validation_max_drawdown  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  full_pnl  max_drawdown  turnover  avg_gross_exposure
+  regime_ic_vol long_short           True         0.418             -1.332                 -266.484        0.759   224.331           -242.872        0.208   188.178      -515.704     0.005               0.045
+regime_ic_trend long_short           True         0.700              0.075                 -353.048        0.525   411.651           -368.830        0.544  1457.558      -392.612     0.009               0.065
+
+
+Soybeans regime IC results
+==========================
+External data warnings: none
+
+vol regime group
+----------------
+    regime            candidate       mode                                              families  eligible  score  train_ic  validation_ic  test_ic  train_obs  validation_obs  test_obs
+   low_vol physical_macro_equal  long_only                                        physical,macro      True  0.099     0.051          0.087   -0.013        213             342       583
+normal_vol        physical_only  long_only                                              physical      True  0.035     0.045          0.024   -0.140       1040             115       198
+  high_vol   selected_all_equal long_short price,physical,external_crush,fx_export,weather,macro      True  0.296     0.096          0.272      NaN        312              63         0
+
+    candidate       mode  cost_adjusted  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+regime_ic_vol long_short          False        0.194   143.495           -885.087        0.500     -1017.924
+regime_ic_vol long_short           True        0.146   107.630           -910.414        0.460     -1048.056
+
+trend regime group
+------------------
+    regime              candidate      mode         families  eligible  score  train_ic  validation_ic  test_ic  train_obs  validation_obs  test_obs
+     trend   physical_macro_equal long_only   physical,macro      True  0.081     0.039          0.071    0.088        680             268       482
+mr_or_chop physical_weather_equal long_only physical,weather      True  0.110     0.069          0.092   -0.077        885             252       299
+
+      candidate       mode  cost_adjusted  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+regime_ic_trend long_short          False        0.820   334.139           -382.890        0.771      -382.890
+regime_ic_trend long_short           True        0.754   307.000           -402.580        0.725      -402.580
+
+Comparison summary
+------------------
+      candidate       mode  cost_adjusted  train_sharpe  validation_sharpe  validation_max_drawdown  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  full_pnl  max_drawdown  turnover  avg_gross_exposure
+regime_ic_trend long_short           True         0.504              1.324                 -159.646        0.754   307.000           -402.580        0.725  1102.576      -402.580     0.004               0.021
+  regime_ic_vol long_short           True         0.506              0.952                 -281.887        0.146   107.630           -910.414        0.460  1064.935     -1048.056     0.004               0.028

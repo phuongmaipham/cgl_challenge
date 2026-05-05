@@ -1,0 +1,93 @@
+Corn abundant-supply risk-control experiment
+Date: 2026-05-02
+
+Base strategy
+-------------
+regime_ic_vol rebuilt from regime_ic_sleeve_experiment.py.
+The base strategy selects IC-passing families inside observable volatility buckets.
+
+Selected base regime table
+--------------------------
+         candidate      mode                               families  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  eligible  score     regime
+selected_all_equal long_only price,physical,fx_export,weather,macro        632     0.056             390         -0.033       491    0.031     False   -inf    low_vol
+selected_all_equal long_only                  price,fx_export,macro        622     0.038             130          0.038       231    0.007      True  0.048 normal_vol
+
+Risk controls
+-------------
+- below_ma_and_negative_mom: corn price below 252-day MA and mom_60 < 0.
+- abundant_low_or_normal: same, but only when 60d vol <= 1.05 * long-run median vol.
+- abundant_curve_confirmed: same, but curve_spread <= 0 confirms no nearby tightness.
+- Action tested: half exposure or flat while condition is true.
+
+Results
+-------
+                      strategy  cost_adjusted  oos_sharpe  oos_pnl   oos_dd  full_sharpe  full_dd  low_price_sharpe  low_price_pnl  low_price_dd  covid_sharpe  covid_pnl  covid_dd  turnover
+ below_ma_or_negative_mom_flat          False       1.806  320.742 -173.865        0.795 -286.755            -3.691       -194.225      -215.414           NaN        NaN       NaN     0.008
+below_ma_and_negative_mom_flat          False       1.306  354.346 -203.559        0.653 -401.310            -0.778       -188.220      -352.055           NaN        NaN       NaN     0.007
+   abundant_low_or_normal_flat          False       1.191  353.366 -203.559        0.514 -401.310            -0.778       -188.220      -352.055           NaN        NaN       NaN     0.007
+ abundant_curve_confirmed_flat          False       1.164  334.620 -192.574        0.462 -390.820            -0.752       -188.714      -361.753        -4.036    -36.933   -63.619     0.006
+below_ma_and_negative_mom_half          False       0.935  310.306 -228.642        0.401 -443.948            -0.415       -134.694      -353.814        -4.036    -18.467   -31.809     0.005
+ below_ma_or_negative_mom_half          False       0.922  293.504 -174.359        0.356 -362.921            -0.611       -137.697      -286.771        -4.036    -18.467   -31.809     0.004
+   abundant_low_or_normal_half          False       0.902  309.816 -228.642        0.353 -443.948            -0.415       -134.694      -353.814        -4.036    -18.467   -31.809     0.005
+ abundant_curve_confirmed_half          False       0.899  300.443 -226.261        0.334 -441.814            -0.413       -134.941      -362.010        -4.036    -36.933   -63.619     0.005
+            base_regime_ic_vol          False       0.745  266.266 -259.948        0.271 -492.809            -0.227        -81.168      -379.317        -4.036    -36.933   -63.619     0.005
+         abundant_low_vol_flat          False       0.728  247.808 -272.184        0.244 -469.909            -0.728       -188.194      -352.029        -4.036    -36.933   -63.619     0.006
+         abundant_low_vol_half          False       0.724  257.037 -262.955        0.249 -478.247            -0.412       -134.681      -353.801        -4.036    -36.933   -63.619     0.006
+ below_ma_or_negative_mom_flat           True       1.745  309.892 -174.159        0.736 -297.795            -3.740       -197.308      -218.097           NaN        NaN       NaN     0.008
+below_ma_and_negative_mom_flat           True       1.233  334.580 -213.721        0.590 -424.956            -0.838       -202.900      -362.331           NaN        NaN       NaN     0.007
+   abundant_low_or_normal_flat           True       1.119  332.037 -213.721        0.451 -424.956            -0.838       -202.900      -362.331           NaN        NaN       NaN     0.007
+ abundant_curve_confirmed_flat           True       1.091  313.784 -199.493        0.400 -412.410            -0.815       -204.582      -372.736        -4.218    -38.736   -64.357     0.006
+below_ma_and_negative_mom_half           True       0.865  286.961 -240.701        0.342 -473.105            -0.476       -154.371      -367.885        -4.218    -19.368   -32.179     0.005
+ below_ma_or_negative_mom_half           True       0.862  274.382 -182.858        0.303 -383.081            -0.664       -149.692      -296.114        -4.218    -19.368   -32.179     0.004
+   abundant_low_or_normal_half           True       0.832  285.690 -240.701        0.292 -473.105            -0.476       -154.371      -367.885        -4.218    -19.368   -32.179     0.005
+ abundant_curve_confirmed_half           True       0.829  277.132 -234.873        0.274 -468.346            -0.476       -155.439      -377.060        -4.218    -38.736   -64.357     0.005
+            base_regime_ic_vol           True       0.677  241.857 -268.877        0.213 -519.888            -0.284       -101.755      -394.599        -4.218    -38.736   -64.357     0.005
+         abundant_low_vol_flat           True       0.652  222.163 -284.859        0.181 -497.400            -0.789       -204.206      -363.638        -4.218    -38.736   -64.357     0.006
+         abundant_low_vol_half           True       0.650  230.753 -276.270        0.187 -509.280            -0.475       -154.977      -368.491        -4.218    -38.736   -64.357     0.006
+
+Key period performance
+----------------------
+
+base_regime_ic_vol_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock    332.297   3.968       -64.698     0.531  64.000
+        US drought rally/retrace     90.279   4.420       -11.951     0.533  30.000
+          Crimea/Black Sea shock     94.293   2.773       -28.909     0.535  43.000
+       Low-price abundant supply   -101.755  -0.284      -394.599     0.469 369.000
+              US-China trade war     84.578   0.402      -174.159     0.474 137.000
+  2019 prevented planting floods    183.213   2.333      -174.159     0.480  25.000
+              COVID demand shock    -38.736  -4.218       -64.357     0.312  16.000
+     COVID recovery/China buying    223.196   3.348       -56.914     0.565  69.000
+
+abundant_low_or_normal_half_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock    332.297   3.968       -64.698     0.531  64.000
+        US drought rally/retrace     90.279   4.420       -11.951     0.533  30.000
+          Crimea/Black Sea shock     94.293   2.773       -28.909     0.535  43.000
+       Low-price abundant supply   -154.371  -0.476      -367.885     0.469 369.000
+              US-China trade war     95.581   0.475      -174.159     0.474 137.000
+  2019 prevented planting floods    183.213   2.333      -174.159     0.480  25.000
+              COVID demand shock    -19.368  -4.218       -32.179     0.312  16.000
+     COVID recovery/China buying    223.196   3.348       -56.914     0.565  69.000
+
+abundant_low_or_normal_flat_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock    332.297   3.968       -64.698     0.531  64.000
+        US drought rally/retrace     90.279   4.420       -11.951     0.533  30.000
+          Crimea/Black Sea shock     94.293   2.773       -28.909     0.535  43.000
+       Low-price abundant supply   -202.900  -0.838      -362.331     0.443 221.000
+              US-China trade war    109.098   0.671      -174.159     0.424  92.000
+  2019 prevented planting floods    183.213   2.333      -174.159     0.480  25.000
+              COVID demand shock        NaN     NaN           NaN       NaN     NaN
+     COVID recovery/China buying    223.196   3.348       -56.914     0.565  69.000
+
+abundant_curve_confirmed_half_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock    332.297   3.968       -64.698     0.531  64.000
+        US drought rally/retrace     88.133   4.375       -11.951     0.533  30.000
+          Crimea/Black Sea shock     94.293   2.773       -28.909     0.535  43.000
+       Low-price abundant supply   -155.439  -0.476      -377.060     0.469 369.000
+              US-China trade war    105.123   0.547      -174.159     0.474 137.000
+  2019 prevented planting floods    183.213   2.333      -174.159     0.480  25.000
+              COVID demand shock    -38.736  -4.218       -64.357     0.312  16.000
+     COVID recovery/China buying    223.196   3.348       -56.914     0.565  69.000

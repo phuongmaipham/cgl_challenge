@@ -1,0 +1,229 @@
+Lower-Overfit Strategy Note
+===========================
+
+Short answer
+------------
+No fitted trading model can honestly be called "does not overfit." Ridge still
+learns coefficients from historical data, so the correct claim is:
+
+    This is a lower-overfit, pre-registered walk-forward algorithm.
+
+Recommended final no-fit candidate
+----------------------------------
+If the priority is high Sharpe, low drawdown, and avoiding fitted Ridge
+coefficients, use the no-fit Cargill-aware reversion rule:
+
+1. Signal
+   - Base signal: rev_5 short-term mean reversion.
+   - Add a small fixed physical tilt:
+     0.10 * average(public inventory pressure, receipts pressure,
+     Cargill inventory pressure, soybean-specific Cargill crush pressure).
+   - This uses both Cargill datasets:
+     cgl_inv through Cargill inventory pressure;
+     cgl_crush through soybean-specific crush pressure.
+
+2. Position construction
+   - Convert the fixed signal to market-neutral cross-sectional positions.
+   - Risk-adjust with lagged 60-day realized commodity volatility.
+   - No regression and no learned beta vector.
+
+3. Risk control
+   - Apply lagged 60-day strategy-PnL volatility targeting.
+   - Target daily PnL volatility = 120.
+   - Max exposure scale = 1.0.
+
+Zero-cost result:
+- IS Sharpe: 0.389
+- OOS Sharpe: 1.779
+- OOS PnL: 11,071
+- Full Sharpe: 1.348
+- Full PnL: 12,154
+- Max drawdown: -2,456
+- Average turnover: 0.481
+
+Cost-adjusted result using 8.75 USD per one-way lot and 5% annual margin
+funding:
+- IS Sharpe: -0.177
+- OOS Sharpe: 1.213
+- OOS PnL: 7,502
+- Full Sharpe: 0.783
+- Full PnL: 7,012
+- Max drawdown: -3,023
+- Average turnover: 0.481
+
+This is the cleanest answer if the reviewer is skeptical of Ridge itself. The
+main weakness is turnover: the rule trades more than the Ridge strategy, so the
+cost-adjusted result is materially weaker than the zero-cost result.
+
+
+Recommended fitted lower-overfit benchmark
+------------------------------------------
+If the reviewer accepts fitted models but wants overfit control, use the annual
+expanding walk-forward two-block Ridge model:
+
+1. Data availability
+   - Use only features available before the traded close.
+   - Cargill inventory and crush data remain shifted by T+1.
+
+2. Fixed feature blocks
+   - Core:
+     mom_60, rev_5, curve_spread, curve_ratio, cot_mm_level, cot_pm_oi_level.
+   - Physical:
+     public_inventory_change, receipts_change, cgl_inventory_change,
+     crush_surprise, crush_utilization.
+   - No macro, EIA, weather, or other external overlays in the final
+     lower-overfit strategy.
+
+3. Fixed model
+   - Ridge core alpha = 25.
+   - Ridge physical alpha = 1000.
+   - Target = 20-day forward dollar PnL.
+   - Retrain annually with an expanding window.
+   - Minimum training history = 756 trading days.
+   - Coefficients are fit only on data strictly before each retrain date.
+
+4. Fixed position construction
+   - Convert predictions to market-neutral cross-sectional positions.
+   - Risk-adjust predictions with lagged 60-day realized volatility.
+   - Demean cross-sectionally and normalize gross exposure.
+
+5. Fixed edge filter
+   - Trade only when prediction dispersion is above its expanding one-day-lagged
+     median.
+   - Edge quantile = 0.50.
+   - This threshold is fixed, not optimized after viewing results.
+
+Walk-forward Ridge backtest result, zero-cost
+---------------------------------------------
+Annual walk-forward Ridge + expanding median edge filter:
+- IS Sharpe: 0.143
+- OOS Sharpe: 1.331
+- OOS PnL: 11,347
+- Full Sharpe: 0.728
+- Full PnL: 12,601
+- Max drawdown: -4,001
+- Average turnover: 0.235
+
+Reference static strategy:
+- OOS Sharpe: 1.498
+- OOS PnL: 10,304
+- Full Sharpe: 1.077
+- Full PnL: 27,469
+- Max drawdown: -4,648
+- Average turnover: 0.234
+
+Recommendation
+--------------
+Present two final candidates, depending on what the reader means by overfit:
+
+1. No-fit final candidate:
+   No-fit Cargill-aware reversion rule with volatility targeting. This has no
+   learned Ridge coefficients and the best drawdown profile.
+
+2. Fitted lower-overfit benchmark:
+   Annual walk-forward two-block Ridge. This still learns coefficients, but only
+   from data available before each trading year.
+
+Present the static edge-filtered two-block Ridge as a higher-performing research
+candidate, not as the most conservative final answer.
+
+Why these are lower-overfit
+---------------------------
+- The no-fit rule has no learned coefficients.
+- The no-fit rule uses fixed economic signs and fixed risk control.
+- No full-sample coefficient fit is used for live-period predictions.
+- No external-data feature expansion is used.
+- No overlay weights are selected from a grid.
+- No named historical regimes are used as trading inputs.
+- Feature set, Ridge penalties, target horizon, retraining schedule, sizing,
+  and edge filter are fixed before scoring.
+
+Remaining risk
+--------------
+Even the no-fit rule can be overfit through research choices: we still chose the
+rule after looking at this dataset. Ridge coefficients are also fitted from past
+data. These strategies reduce overfit risk but cannot eliminate it. The honest
+final sentence is:
+
+    The algorithms are designed to reduce overfit; they still need validation
+    on the untouched 2021-2026 holdout before being treated as robust.
+
+
+Per-grain strategy check
+-----------------------
+I also tested fixed commodity-specific recipes because one shared grain formula
+can be too blunt:
+
+- Corn: short-term reversion plus inventory pressure.
+- Soybean: short-term reversion plus inventory pressure plus Cargill crush.
+- SRW/HRW wheat: short-term reversion plus trend/curve/COT plus inventory
+  pressure.
+
+This did not improve the result. The commodity-specific relative-value recipe
+produced OOS Sharpe 1.084 versus 1.779 for the simpler no-fit Cargill-aware
+reversion rule. Independent outright per-grain positions were worse and lost
+money OOS.
+
+The useful lesson is not that all grains have identical economics. The lesson is
+that, in this 2010-2020 sample, the robust edge is the relative-value
+cross-sectional reversion effect. Commodity-specific directional complexity adds
+research degrees of freedom without adding OOS performance.
+
+Final recommendation after the per-grain check
+----------------------------------------------
+Keep the no-fit Cargill-aware reversion rule as the conservative final
+candidate:
+
+    signal = rev_5 + 0.10 * physical_pressure
+
+where physical_pressure includes public inventory, receipts, Cargill inventory,
+and soybean-specific Cargill crush. Convert that signal to market-neutral
+cross-sectional positions and apply lagged volatility targeting.
+
+Use the pure mr_only relative-value result as a sensitivity check:
+
+- Pure mr_only has slightly higher zero-cost OOS Sharpe: 1.814 vs 1.779.
+- The Cargill-aware physical tilt has materially better max drawdown:
+  -2,456 vs -4,213.
+
+For the challenge write-up, I would present the physical-tilted version as the
+main strategy because it uses both Cargill datasets and improves the risk
+profile, while also showing the pure reversion variant to prove that the
+physical tilt was not curve-fit to manufacture the whole result.
+
+
+Soybean-only optional sleeve
+---------------------------
+I tested soybean separately because soybean is the one grain where the Cargill
+crush dataset has the most direct economic meaning.
+
+The best lower-overfit soybean-only candidate is:
+
+    soy_conservative_long_blend, long_only
+
+It uses no regression coefficients. It blends:
+
+- soybean trend/curve/COT pressure;
+- public inventory, receipts, and Cargill inventory pressure;
+- Cargill crush surprise and utilization;
+- curve tightness;
+- a small rev_5 component.
+
+The position is long-only, smoothed, thresholded, and volatility-targeted.
+
+Results:
+
+- Zero-cost test Sharpe: 0.823
+- Zero-cost test PnL: 320
+- Zero-cost full Sharpe: 0.800
+- Zero-cost full max drawdown: -463
+- Cost-adjusted test Sharpe: 0.757
+- Cost-adjusted test PnL: 294
+- Cost-adjusted full Sharpe: 0.761
+- Cost-adjusted full max drawdown: -465
+
+This improves sharply over naive soybean rev_5, which had negative test Sharpe
+and much worse drawdown. However, it should remain an optional soybean-only
+sleeve rather than replacing the all-grain cross-sectional strategy. The
+soybean-only edge is cleaner after making it long-only and physical, but the
+absolute PnL is small because the risk budget is deliberately conservative.

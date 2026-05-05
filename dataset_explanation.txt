@@ -1,0 +1,65 @@
+Dataset explanation
+===================
+
+The train_set directory contains ten CSV files. All files use dates as the index.
+Most files have one column per commodity:
+
+- CORN
+- SOYABEAN
+- WHEAT_SRW
+- WHEAT_HRW
+
+Price files
+-----------
+train_adjPrices1.csv and train_adjPrices2.csv contain rolled adjusted C1 and C2
+prices. The adjusted series are the correct series for PnL. A one-lot daily PnL
+can be computed as:
+
+    train_adjPrices1.diff() * 5000
+
+train_unadjPrices1.csv and train_unadjPrices2.csv contain raw rolled C1 and C2
+prices. They are useful for curve features, such as C1-C2 spread or C1/C2 ratio,
+but not for continuous PnL.
+
+COT files
+---------
+train_cot_mm.csv contains net money-manager positioning, calculated as long minus
+short.
+
+train_cot_pm_oi.csv contains net producer/merchant positioning divided by open
+interest, calculated as (long minus short) / open interest.
+
+Public physical data
+--------------------
+train_inventories.csv contains public total stocks of commodities at terminals,
+elevators, and crush plants. The instructions say this is released in session on
+Tuesdays, two days after the stamped date. The implementation therefore shifts it
+by T+2 before using it as a feature.
+
+train_receipts.csv contains cumulative net receipts at terminals, elevators, and
+crush plants. Net receipts mean entering minus exiting. The instructions say this
+is available T+2, so the implementation shifts it by two calendar days.
+
+Cargill internal data
+---------------------
+train_cgl_inv.csv contains Cargill stocks of grains at Cargill terminals,
+elevators, and crush plants. It is available T+1, so the implementation shifts it
+by one calendar day.
+
+train_cgl_crush.csv contains Cargill crush plant activity. It has two columns:
+processed and planned. It is available T+1. The implementation uses processed,
+planned, processed-minus-planned, and processed/planned minus one.
+
+Data timing
+-----------
+The notebook aligns all features to the adjusted-price trading calendar. Lagged
+features are forward-filled after their first available date. Positions are then
+shifted by one day in the backtest so PnL is earned only after the signal is
+known.
+
+Supplied sample coverage
+------------------------
+The supplied training files mostly cover 2010-2020. Some physical datasets begin
+later. The public inventories file begins in 2005, but the trading calendar is
+driven by adjusted prices beginning in 2010.
+

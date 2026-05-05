@@ -1,0 +1,151 @@
+Wheat lower-overfit improvement experiments
+Date: 2026-05-02
+
+Goal
+----
+Improve WHEAT_SRW and WHEAT_HRW without fitting coefficients by testing wheat as a SRW/HRW relative-value sleeve.
+
+Controls
+--------
+- No OLS, Ridge, Kalman, or fitted model weights.
+- No external data.
+- Fixed signal formulas, fixed trend/MR regime rule, fixed risk target.
+- Leg-level SRW and HRW positions are risk-balanced with 60-day realized PnL volatility.
+- Cost-adjusted rows include 8.75 USD per one-way lot plus 5% annual margin funding.
+- Cargill requirement: pair_physical_cargill and all combined physical/family rows use both cgl_inventory_change from cgl_inv and crush_surprise/crush_utilization from cgl_crush.
+
+Position rule
+-------------
+pair_score > 0: long WHEAT_SRW, short WHEAT_HRW.
+pair_score < 0: short WHEAT_SRW, long WHEAT_HRW.
+Default leg_position = tanh(pair_score / 2) * 45 / 60d_leg_pnl_vol, clipped to +/-0.45 lots.
+Cost-control variants use halflife 5, threshold 0.12, weekly rebalance, and target daily pair vol 40.
+
+Results
+-------
+        book                                               strategy  cost_adjusted  is_sharpe  oos_sharpe  oos_pnl   oos_dd  oos_dd_pct_avg_margin  full_sharpe  full_pnl  full_dd  full_dd_pct_avg_margin  hit_rate  win_days  turnover  avg_gross_exposure  avg_margin_used
+SRW_HRW_PAIR pair_price_mr_cargill_trend_conflict_flat_cost_control          False      1.413       2.549   31.558  -16.422                    NaN        1.815    63.872  -19.246                     NaN     0.507        38     0.005               0.028              NaN
+SRW_HRW_PAIR    pair_price_mr_cargill_80_20_pair_trend_cost_control          False      1.251       1.592   44.832  -27.784                    NaN        1.372   106.972  -27.784                     NaN     0.524        89     0.003               0.025              NaN
+SRW_HRW_PAIR               pair_price_mr_cargill_95_05_cost_control          False      2.020       1.586   45.189  -20.816                    NaN        1.853   135.214  -20.816                     NaN     0.491        81     0.005               0.030              NaN
+SRW_HRW_PAIR               pair_price_mr_cargill_90_10_cost_control          False      1.952       1.490   35.237  -16.927                    NaN        1.773   106.990  -19.001                     NaN     0.479        67     0.005               0.031              NaN
+SRW_HRW_PAIR                             pair_price_mr_cost_control          False      1.944       1.392   44.306  -24.077                    NaN        1.728   139.437  -24.077                     NaN     0.472        85     0.005               0.031              NaN
+SRW_HRW_PAIR              pair_price_mr_physical_90_10_cost_control          False      1.827       1.239   30.322  -18.514                    NaN        1.598    99.708  -19.215                     NaN     0.503        73     0.005               0.030              NaN
+SRW_HRW_PAIR                                          pair_price_mr          False      0.550       1.050  128.280  -52.409                    NaN        0.724   248.827  -87.982                     NaN     0.519       285     0.009               0.028              NaN
+SRW_HRW_PAIR                                               pair_cot          False      0.098       0.472   41.183  -38.696                    NaN        0.218    59.090  -77.450                     NaN     0.491       248     0.004               0.024              NaN
+SRW_HRW_PAIR                    pair_mr_curve_physical_cost_control          False      0.727       0.321   10.601  -34.583                    NaN        0.642   103.190  -63.897                     NaN     0.488       105     0.002               0.028              NaN
+SRW_HRW_PAIR                             pair_fixed_trend_mr_regime          False      0.348       0.285   28.361  -55.102                    NaN        0.333   136.615 -156.066                     NaN     0.489       259     0.004               0.030              NaN
+SRW_HRW_PAIR                           pair_mr_curve_physical_equal          False      0.706       0.234   21.375  -39.233                    NaN        0.580   197.164 -109.450                     NaN     0.478       258     0.004               0.027              NaN
+SRW_HRW_PAIR                                 pair_soft_hybrid_70_30          False      0.613       0.190   17.020  -44.222                    NaN        0.505   177.769 -127.726                     NaN     0.478       265     0.004               0.028              NaN
+SRW_HRW_PAIR                              pair_balanced_low_overfit          False      0.454       0.186   12.473  -37.573                    NaN        0.371    80.728  -93.413                     NaN     0.484       233     0.003               0.021              NaN
+SRW_HRW_PAIR                                  pair_all_family_equal          False     -1.853       0.186   12.473  -37.573                    NaN       -0.417   -39.762  -75.951                     NaN     0.484       233     0.005               0.026              NaN
+SRW_HRW_PAIR                                   pair_physical_public          False     -0.058       0.127   33.103 -171.110                    NaN        0.071    26.527 -198.994                     NaN     0.499       334     0.012               0.070              NaN
+SRW_HRW_PAIR                                             pair_curve          False      0.553       0.079   18.674 -124.150                    NaN        0.433   404.710 -305.126                     NaN     0.470       313     0.007               0.060              NaN
+SRW_HRW_PAIR                                          pair_physical          False     -0.314      -0.245  -39.480 -131.780                    NaN       -0.266   -61.213 -183.345                     NaN     0.506       316     0.009               0.046              NaN
+SRW_HRW_PAIR                              pair_given_physical_equal          False     -0.564      -0.245  -39.480 -131.780                    NaN       -0.346   -81.244 -183.345                     NaN     0.506       316     0.008               0.046              NaN
+SRW_HRW_PAIR                                       pair_price_trend          False     -0.422      -0.542  -84.991 -135.712                    NaN       -0.460  -188.683 -254.088                     NaN     0.478       290     0.004               0.034              NaN
+SRW_HRW_PAIR                                  pair_physical_cargill          False     -2.028      -1.603 -129.447 -145.332                    NaN       -1.739  -205.890 -229.071                     NaN     0.472       203     0.008               0.029              NaN
+SRW_HRW_PAIR pair_price_mr_cargill_trend_conflict_flat_cost_control           True      1.087       2.145   26.671  -16.956                 20.822        1.462    51.553  -20.246                  24.862     0.507        38     0.005               0.028           81.432
+SRW_HRW_PAIR    pair_price_mr_cargill_80_20_pair_trend_cost_control           True      0.992       1.291   36.374  -29.441                 42.562        1.098    85.718  -29.441                  42.562     0.518        88     0.003               0.025           69.173
+SRW_HRW_PAIR               pair_price_mr_cargill_95_05_cost_control           True      1.670       1.222   34.844  -23.980                 27.742        1.497   109.199  -23.980                  27.742     0.491        81     0.005               0.030           86.437
+SRW_HRW_PAIR               pair_price_mr_cargill_90_10_cost_control           True      1.577       1.129   26.689  -19.910                 22.756        1.403    84.680  -22.051                  25.203     0.479        67     0.005               0.031           87.492
+SRW_HRW_PAIR                             pair_price_mr_cost_control           True      1.595       1.035   32.965  -28.324                 32.275        1.376   111.025  -28.324                  32.275     0.472        85     0.005               0.031           87.757
+SRW_HRW_PAIR              pair_price_mr_physical_90_10_cost_control           True      1.454       0.897   21.914  -20.836                 24.088        1.237    77.153  -22.247                  25.720     0.497        72     0.005               0.030           86.500
+SRW_HRW_PAIR                                          pair_price_mr           True      0.081       0.539   65.746  -58.181                 75.996        0.243    83.453 -142.668                 186.353     0.501       275     0.009               0.028           76.558
+SRW_HRW_PAIR                                               pair_cot           True     -0.234       0.100    8.757  -46.607                 73.880       -0.125   -33.910 -103.957                 164.790     0.481       243     0.004               0.024           63.085
+SRW_HRW_PAIR                    pair_mr_curve_physical_cost_control           True      0.562       0.038    1.264  -36.644                 49.618        0.454    72.929  -68.411                  92.632     0.479       103     0.002               0.028           73.853
+SRW_HRW_PAIR                             pair_fixed_trend_mr_regime           True      0.109      -0.057   -5.655  -64.343                 83.864        0.069    28.153 -191.873                 250.085     0.479       254     0.004               0.030           76.723
+SRW_HRW_PAIR                           pair_mr_curve_physical_equal           True      0.445      -0.129  -11.711  -45.603                 65.115        0.292    99.117 -145.792                 208.171     0.467       252     0.004               0.027           70.035
+SRW_HRW_PAIR                                 pair_soft_hybrid_70_30           True      0.374      -0.138  -12.338  -50.831                 71.860        0.244    85.778 -160.931                 227.511     0.468       259     0.004               0.028           70.736
+SRW_HRW_PAIR                              pair_balanced_low_overfit           True      0.189      -0.193  -12.966  -44.651                 81.183        0.071    15.440 -129.346                 235.171     0.476       229     0.003               0.021           55.001
+SRW_HRW_PAIR                                  pair_all_family_equal           True     -2.281      -0.193  -12.966  -44.651                 65.539       -0.811   -77.287 -106.753                 156.691     0.476       229     0.005               0.026           68.129
+SRW_HRW_PAIR                                             pair_curve           True      0.323      -0.204  -48.012 -141.610                 93.204        0.190   177.179 -379.221                 249.591     0.468       312     0.007               0.060          151.937
+SRW_HRW_PAIR                                   pair_physical_public           True     -0.468      -0.227  -59.024 -189.632                105.840       -0.300  -111.689 -287.021                 160.196     0.478       320     0.012               0.070          179.169
+SRW_HRW_PAIR                                          pair_physical           True     -0.695      -0.606  -97.384 -155.606                129.834       -0.632  -145.456 -226.931                 189.346     0.483       302     0.009               0.046          119.850
+SRW_HRW_PAIR                              pair_given_physical_equal           True     -0.947      -0.606  -97.384 -155.606                131.552       -0.713  -167.477 -231.069                 195.349     0.483       302     0.008               0.046          118.285
+SRW_HRW_PAIR                                       pair_price_trend           True     -0.669      -0.786 -123.391 -169.563                194.551       -0.701  -288.056 -349.301                 400.777     0.473       287     0.004               0.034           87.156
+SRW_HRW_PAIR                                  pair_physical_cargill           True     -2.516      -2.037 -164.258 -177.857                225.170       -2.191  -259.344 -278.897                 353.088     0.458       197     0.008               0.029           78.988
+
+Formulas and overfit notes
+--------------------------
+- pair_price_mr_cargill_trend_conflict_flat_cost_control: price-MR/Cargill pair signal, but flat when observable SRW/HRW trend strongly conflicts with MR
+  Overfit: Low/moderate: observable trend-risk filter; avoids fighting strong pair trends but can undertrade.
+- pair_price_mr_cargill_80_20_pair_trend_cost_control: 80% price-MR/Cargill pair signal + 20% SRW/HRW price-ratio trend, with fixed cost-control execution
+  Overfit: Low/moderate: fixed 80/20 blend chosen as a trend-risk diversifier, not fitted coefficients.
+- pair_price_mr_cargill_95_05_cost_control: 95% SRW/HRW price MR + 5% SRW/HRW Cargill physical family, with fixed cost-control execution
+  Overfit: Moderate: strongest OOS Sharpe, but choosing 5% instead of 10% is more selection-sensitive.
+- pair_price_mr_cargill_90_10_cost_control: 90% SRW/HRW price MR + 10% SRW/HRW Cargill physical family, with fixed cost-control execution
+  Overfit: Low/moderate: round-number 10% Cargill physical overlay; no fitted coefficients, but still a researched blend.
+- pair_price_mr_cost_control: same signal as pair_price_mr, but halflife 5, threshold 0.12, weekly rebalance, 40 target daily pair vol
+  Overfit: Low/moderate: no alpha fitting, but adds a fixed execution filter after seeing costs matter.
+- pair_price_mr_physical_90_10_cost_control: 90% SRW/HRW price MR + 10% SRW/HRW total physical family, with fixed cost-control execution
+  Overfit: Low/moderate: round-number 10% total physical overlay; no fitted coefficients, but still a researched blend.
+- pair_price_mr: signal = SRW.rev_5 - HRW.rev_5
+  Overfit: Very low: one fixed price-reversion hypothesis.
+- pair_cot: signal = SRW COT family - HRW COT family
+  Overfit: Very low: one fixed positioning hypothesis.
+- pair_mr_curve_physical_cost_control: same signal as pair_mr_curve_physical_equal, but halflife 5, threshold 0.12, weekly rebalance, 40 target daily pair vol
+  Overfit: Low/moderate: no alpha fitting, but adds a fixed execution filter after seeing costs matter.
+- pair_fixed_trend_mr_regime: if observable trend regime: trend/curve/COT pair; otherwise MR/curve/physical pair
+  Overfit: Moderate research risk: fixed observable regime switch, no optimized weights.
+- pair_mr_curve_physical_equal: signal = equal_weight(pair MR, pair curve, pair physical)
+  Overfit: Low/moderate: curated three-family economic basket.
+- pair_soft_hybrid_70_30: signal = 70% MR/curve/physical pair + 30% trend/curve/COT pair
+  Overfit: Moderate research risk: fixed hybrid weight, chosen as conservative MR-dominant wheat prior.
+- pair_balanced_low_overfit: signal = equal_weight(pair MR, trend, curve, COT, public physical, Cargill physical)
+  Overfit: Low: broad equal family basket; no selected coefficients.
+- pair_all_family_equal: signal = equal-weight family score(SRW) - equal-weight family score(HRW)
+  Overfit: Low: equal family weights; no selected coefficients.
+- pair_physical_public: signal = SRW public inventory/receipts pressure - HRW public pressure
+  Overfit: Low: fixed public physical relative-tightness hypothesis.
+- pair_curve: signal = SRW curve family - HRW curve family
+  Overfit: Very low: one fixed curve relative-tightness hypothesis.
+- pair_physical: signal = SRW total physical pressure - HRW total physical pressure
+  Overfit: Low: fixed public+Cargill physical hypothesis.
+- pair_given_physical_equal: signal = equal_weight(pair public physical, pair Cargill physical)
+  Overfit: Low: physical-only equal family basket.
+- pair_price_trend: signal = mean(SRW.mom_20,mom_60) - mean(HRW.mom_20,mom_60)
+  Overfit: Very low: one fixed price-trend hypothesis.
+- pair_physical_cargill: signal = SRW Cargill inventory/crush family - HRW Cargill family
+  Overfit: Low: fixed Cargill physical relative-tightness hypothesis; uses both cgl_inv and cgl_crush.
+
+Key period performance
+----------------------
+
+pair_price_mr_cargill_90_10_cost_control_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock      6.280  16.323        -0.255     0.800   5.000
+        US drought rally/retrace      3.135   1.367        -7.245     0.467  15.000
+          Crimea/Black Sea shock     11.446   2.702       -10.997     0.583  24.000
+       Low-price abundant supply     34.195   1.543       -22.051     0.533 135.000
+              US-China trade war      6.922   0.546       -18.854     0.458  72.000
+  2019 prevented planting floods    -11.579  -4.629       -13.731     0.300  20.000
+              COVID demand shock     -0.143  -0.040       -13.325     0.400  20.000
+     COVID recovery/China buying    -14.392  -4.001       -17.658     0.440  25.000
+
+pair_price_mr_cargill_80_20_pair_trend_cost_control_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate    days
+Russian drought/export ban shock     35.854   4.948        -6.282     0.600  75.000
+        US drought rally/retrace      8.966   2.010        -6.900     0.545  55.000
+          Crimea/Black Sea shock      8.912   3.561        -6.361     0.650  20.000
+       Low-price abundant supply      1.353   0.054       -28.455     0.421 140.000
+              US-China trade war     17.331   1.399       -14.033     0.539  89.000
+  2019 prevented planting floods     -3.499  -1.400       -10.155     0.524  21.000
+              COVID demand shock      0.957   0.452       -12.903     0.400  10.000
+     COVID recovery/China buying      8.257   4.123        -4.248     0.600  15.000
+
+pair_price_mr_cargill_trend_conflict_flat_cost_control_cost
+                          period  total_pnl  sharpe  max_drawdown  hit_rate   days
+Russian drought/export ban shock      9.572   7.547        -2.179     0.600 10.000
+        US drought rally/retrace      3.401   4.519        -2.909     0.600  5.000
+          Crimea/Black Sea shock      8.229   6.393        -5.032     0.700 10.000
+       Low-price abundant supply     16.593   1.220       -20.246     0.463 80.000
+              US-China trade war      3.941   0.711       -15.296     0.457 35.000
+  2019 prevented planting floods    -11.752  -5.150       -15.296     0.333 15.000
+              COVID demand shock      5.114   1.171       -16.956     0.500 20.000
+     COVID recovery/China buying      2.056   3.334        -3.191     0.600  5.000
+
+Recommendation
+--------------
+Highest cost-adjusted SRW/HRW pair row: pair_price_mr_cargill_trend_conflict_flat_cost_control, OOS Sharpe 2.145, OOS PnL 26.671, OOS DD -16.956, OOS DD 20.82% of average margin, full Sharpe 1.462.
+Lower-overfit recommended row: pair_price_mr_cargill_90_10_cost_control, OOS Sharpe 1.129, OOS PnL 26.689, OOS DD -19.910, OOS DD 22.76% of average margin, full Sharpe 1.403.
+Use as a wheat relative-value sleeve only if the fund mandate allows SRW/HRW pair trading. Do not present it as two independent outright wheat alphas.

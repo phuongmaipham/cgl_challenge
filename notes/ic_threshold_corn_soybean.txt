@@ -1,0 +1,191 @@
+IC-threshold sleeve selection experiments
+Date: 2026-05-02
+
+Method
+------
+- Signal IC is Spearman correlation of signal_t versus next-day futures PnL.
+- Signals pass if abs(train IC) >= 0.015 before 2016.
+- Passed signals are oriented by train IC sign, then grouped into economic families.
+- Family candidates are fixed equal-weight composites.
+- Candidate selection uses validation IC from 2016-2017 only.
+- 2018-2020 is reported as the untouched OOS period.
+- Backtests are also cost-adjusted with trade and holding costs.
+
+
+Corn results
+============
+External data warnings: none
+
+Signals passing IC threshold
+----------------------------
+                         signal  train_ic  validation_ic  test_ic  passes_ic_threshold
+external_weather_hdd_cdd_family     0.044         -0.051   -0.006                 True
+          given_cot_pm_oi_level     0.021          0.070   -0.019                 True
+                   given_mom_20     0.021         -0.021    0.048                 True
+   given_cgl_inventory_pressure     0.018          0.058    0.001                 True
+ external_relative_grain_family    -0.015         -0.026    0.049                 True
+      external_fx_export_family    -0.027         -0.026    0.040                 True
+     external_macro_risk_family    -0.036          0.059    0.041                 True
+
+Family members after IC filtering
+---------------------------------
+- price: given_mom_20
+- physical: given_cgl_inventory_pressure
+- fx_export: external_fx_export_family
+- weather: external_weather_hdd_cdd_family
+- macro: external_macro_risk_family, external_relative_grain_family
+
+Candidate selection by validation IC
+------------------------------------
+             candidate       mode                               families  eligible  selection_score  train_ic  validation_ic  test_ic
+     physical_fx_equal long_short                     physical,fx_export      True            0.074     0.024          0.068   -0.030
+     physical_fx_equal  long_only                     physical,fx_export      True            0.073     0.033          0.065   -0.039
+         physical_only  long_only                               physical      True            0.065     0.026          0.059    0.005
+         physical_only long_short                               physical      True            0.062     0.018          0.058    0.001
+  physical_macro_equal long_short                         physical,macro      True            0.049     0.023          0.043   -0.042
+  physical_macro_equal  long_only                         physical,macro      True            0.047     0.032          0.039   -0.040
+physical_weather_equal  long_only                       physical,weather      True            0.039     0.041          0.028    0.000
+    selected_all_equal long_short price,physical,fx_export,weather,macro      True            0.038     0.045          0.027   -0.024
+    selected_all_equal  long_only price,physical,fx_export,weather,macro      True            0.036     0.048          0.024   -0.013
+physical_weather_equal long_short                       physical,weather      True            0.032     0.029          0.024   -0.010
+  price_physical_equal long_short                         price,physical      True            0.030     0.021          0.025    0.027
+  price_physical_equal  long_only                         price,physical      True            0.022     0.027          0.015    0.004
+
+Cost-adjusted OOS performance
+-----------------------------
+             candidate       mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+  price_physical_equal  long_only           True     0.027          0.015    0.004        0.690   485.061           -604.276        0.198      -845.039
+  price_physical_equal long_short           True     0.021          0.025    0.027        0.470   528.228           -636.313        0.159      -823.569
+    selected_all_equal  long_only           True     0.048          0.024   -0.013        0.138    44.240           -268.644        0.138      -291.967
+         physical_only  long_only           True     0.026          0.059    0.005        0.015     9.353           -718.028        0.067      -897.507
+physical_weather_equal  long_only           True     0.041          0.028    0.000       -0.290  -102.819           -396.290        0.091      -523.075
+         physical_only long_short           True     0.018          0.058    0.001       -0.403  -478.113           -915.016       -0.122     -1347.026
+    selected_all_equal long_short           True     0.045          0.027   -0.024       -0.426  -231.452           -405.036        0.018      -578.987
+physical_weather_equal long_short           True     0.029          0.024   -0.010       -0.593  -418.958           -698.169       -0.154      -898.567
+     physical_fx_equal  long_only           True     0.033          0.065   -0.039       -0.699  -383.599           -748.263       -0.243      -782.840
+     physical_fx_equal long_short           True     0.024          0.068   -0.030       -0.780  -878.449           -964.271       -0.274     -1114.853
+  physical_macro_equal long_short           True     0.023          0.043   -0.042       -1.189  -973.856          -1265.219       -0.209     -1265.219
+  physical_macro_equal  long_only           True     0.032          0.039   -0.040       -1.451  -520.944           -836.937       -0.071      -925.929
+
+Selected by validation IC
+-------------------------
+- physical_fx_equal long_short families=[physical,fx_export] train_IC=0.024 validation_IC=0.068 test_IC=-0.030
+        candidate       mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+physical_fx_equal long_short          False     0.024          0.068   -0.030       -0.689  -775.943           -881.817       -0.213     -1058.219
+physical_fx_equal long_short           True     0.024          0.068   -0.030       -0.780  -878.449           -964.271       -0.274     -1114.853
+
+IC + validation Sharpe/DD sanity selection
+------------------------------------------
+- physical_only long_only families=[physical] train_IC=0.026 validation_IC=0.059 test_IC=0.005
+- Sanity gates: candidate passed train IC threshold, train Sharpe > 0, validation Sharpe > 0, validation DD > -250.
+    candidate      mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+physical_only long_only          False     0.026          0.059    0.005        0.155    98.633           -684.844        0.147      -835.468
+physical_only long_only           True     0.026          0.059    0.005        0.015     9.353           -718.028        0.067      -897.507
+
+Overfit read
+------------
+- Best OOS cost-adjusted row was price_physical_equal long_only with Sharpe 0.690 and DD -604.276.
+- Validation-selected row had OOS Sharpe -0.780 and DD -964.271.
+- IC+Sharpe/DD sanity row had OOS Sharpe 0.015 and DD -718.028.
+- Gap is large, so candidate selection remains a research-overfit risk.
+
+
+Soybeans results
+================
+External data warnings: none
+
+Signals passing IC threshold
+----------------------------
+                         signal  train_ic  validation_ic  test_ic  passes_ic_threshold
+external_weather_hdd_cdd_family     0.059         -0.039    0.032                 True
+   given_cgl_inventory_pressure     0.041          0.045   -0.055                 True
+                    given_trend     0.034          0.003    0.067                 True
+             given_price_family     0.030         -0.018    0.066                 True
+     external_macro_risk_family     0.023          0.026    0.005                 True
+                    given_rev_5     0.022          0.031   -0.055                 True
+                   given_mom_60     0.020          0.013    0.083                 True
+              given_curve_ratio     0.019         -0.034    0.042                 True
+             given_curve_spread     0.019         -0.013    0.047                 True
+          given_curve_tightness     0.019         -0.024    0.044                 True
+      external_fx_export_family    -0.020         -0.012    0.043                 True
+          external_crush_family    -0.031         -0.007    0.045                 True
+ external_relative_grain_family    -0.039          0.015   -0.082                 True
+
+Family members after IC filtering
+---------------------------------
+- price: given_mom_60, given_rev_5, given_price_family
+- physical: given_cgl_inventory_pressure, given_curve_tightness
+- external_crush: external_crush_family
+- fx_export: external_fx_export_family
+- weather: external_weather_hdd_cdd_family
+- macro: external_macro_risk_family, external_relative_grain_family
+
+Candidate selection by validation IC
+------------------------------------
+                         candidate       mode                                              families  eligible  selection_score  train_ic  validation_ic  test_ic
+                selected_all_equal long_short price,physical,external_crush,fx_export,weather,macro      True            0.043     0.056          0.029    0.009
+              price_physical_equal  long_only                                        price,physical      True            0.034     0.040          0.024    0.042
+              physical_macro_equal  long_only                                        physical,macro      True            0.027     0.046          0.016    0.058
+   physical_extcrush_weather_equal long_short                       physical,external_crush,weather      True            0.024     0.035          0.015   -0.024
+physical_extcrush_fx_weather_equal long_short             physical,external_crush,fx_export,weather      True            0.017     0.027          0.010   -0.041
+            physical_weather_equal long_short                                      physical,weather      True            0.017     0.044          0.006    0.027
+           physical_extcrush_equal long_short                               physical,external_crush      True            0.015     0.029          0.008   -0.023
+                 physical_fx_equal long_short                                    physical,fx_export      True            0.015     0.015          0.011   -0.017
+        physical_extcrush_fx_equal long_short                     physical,external_crush,fx_export      True            0.013     0.025          0.007   -0.045
+                     physical_only long_short                                              physical      True            0.010     0.034          0.001    0.017
+physical_extcrush_fx_weather_equal  long_only             physical,external_crush,fx_export,weather      True            0.008     0.026          0.002   -0.033
+                 physical_fx_equal  long_only                                    physical,fx_export      True            0.007     0.016          0.003   -0.041
+              price_physical_equal long_short                                        price,physical     False             -inf     0.033         -0.008    0.047
+            physical_weather_equal  long_only                                      physical,weather     False             -inf     0.043         -0.011    0.037
+              physical_macro_equal long_short                                        physical,macro     False             -inf     0.033         -0.000    0.052
+           physical_extcrush_equal  long_only                               physical,external_crush     False             -inf     0.032         -0.027   -0.023
+        physical_extcrush_fx_equal  long_only                     physical,external_crush,fx_export     False             -inf     0.022         -0.006   -0.042
+   physical_extcrush_weather_equal  long_only                       physical,external_crush,weather     False             -inf     0.042         -0.004   -0.023
+                     physical_only  long_only                                              physical     False             -inf     0.038         -0.011    0.017
+                selected_all_equal  long_only price,physical,external_crush,fx_export,weather,macro     False             -inf     0.066         -0.009   -0.002
+
+Cost-adjusted OOS performance
+-----------------------------
+                         candidate       mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+              physical_macro_equal  long_only           True     0.046          0.016    0.058        1.069   418.502           -311.788        0.911      -377.635
+              price_physical_equal  long_only           True     0.040          0.024    0.042        0.834   452.191           -610.600        0.791      -794.922
+              physical_macro_equal long_short           True     0.033         -0.000    0.052        0.705   507.428           -286.664        0.278      -749.238
+              price_physical_equal long_short           True     0.033         -0.008    0.047        0.554   505.725           -805.732        0.152      -916.222
+                     physical_only  long_only           True     0.038         -0.011    0.017        0.255   176.654           -856.217        0.402     -1045.290
+            physical_weather_equal  long_only           True     0.043         -0.011    0.037        0.162    62.915           -544.285        0.431      -717.081
+                     physical_only long_short           True     0.034          0.001    0.017        0.066    83.982          -1131.865       -0.150     -1581.990
+                selected_all_equal  long_only           True     0.066         -0.009   -0.002        0.007     1.409           -247.729        0.711      -303.503
+            physical_weather_equal long_short           True     0.044          0.006    0.027       -0.033   -23.427           -704.242       -0.077      -888.759
+                selected_all_equal long_short           True     0.056          0.029    0.009       -0.363  -128.328           -339.375        0.305      -410.664
+   physical_extcrush_weather_equal long_short           True     0.035          0.015   -0.024       -0.601  -404.598           -609.812        0.000     -1077.772
+   physical_extcrush_weather_equal  long_only           True     0.042         -0.004   -0.023       -0.619  -208.886           -537.088        0.230      -874.075
+           physical_extcrush_equal long_short           True     0.029          0.008   -0.023       -0.623  -610.248           -840.011       -0.085     -1415.131
+                 physical_fx_equal long_short           True     0.015          0.011   -0.017       -0.647  -618.261           -834.221       -0.451     -1828.100
+           physical_extcrush_equal  long_only           True     0.032         -0.027   -0.023       -0.709  -334.389           -740.899        0.259     -1024.366
+                 physical_fx_equal  long_only           True     0.016          0.003   -0.041       -0.783  -394.640           -647.241       -0.042      -690.658
+physical_extcrush_fx_weather_equal long_short           True     0.027          0.010   -0.041       -1.062  -629.413           -642.787       -0.242      -966.741
+        physical_extcrush_fx_equal  long_only           True     0.022         -0.006   -0.042       -1.082  -398.666           -556.348        0.110      -682.757
+        physical_extcrush_fx_equal long_short           True     0.025          0.007   -0.045       -1.085  -819.310           -838.966       -0.326     -1232.133
+physical_extcrush_fx_weather_equal  long_only           True     0.026          0.002   -0.033       -1.109  -325.101           -452.099        0.161      -584.874
+
+Selected by validation IC
+-------------------------
+- selected_all_equal long_short families=[price,physical,external_crush,fx_export,weather,macro] train_IC=0.056 validation_IC=0.029 test_IC=0.009
+         candidate       mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+selected_all_equal long_short          False     0.056          0.029    0.009       -0.303  -107.045           -322.296        0.346      -379.098
+selected_all_equal long_short           True     0.056          0.029    0.009       -0.363  -128.328           -339.375        0.305      -410.664
+
+IC + validation Sharpe/DD sanity selection
+------------------------------------------
+- physical_fx_equal long_only families=[physical,fx_export] train_IC=0.016 validation_IC=0.003 test_IC=-0.041
+- Sanity gates: candidate passed train IC threshold, train Sharpe > 0, validation Sharpe > 0, validation DD > -250.
+        candidate      mode  cost_adjusted  train_ic  validation_ic  test_ic  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown
+physical_fx_equal long_only          False     0.016          0.003   -0.041       -0.736  -370.752           -626.029       -0.005      -666.303
+physical_fx_equal long_only           True     0.016          0.003   -0.041       -0.783  -394.640           -647.241       -0.042      -690.658
+
+Overfit read
+------------
+- Best OOS cost-adjusted row was physical_macro_equal long_only with Sharpe 1.069 and DD -311.788.
+- Validation-selected row had OOS Sharpe -0.363 and DD -339.375.
+- IC+Sharpe/DD sanity row had OOS Sharpe -0.783 and DD -647.241.
+- Gap is large, so candidate selection remains a research-overfit risk.

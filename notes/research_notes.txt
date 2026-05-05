@@ -1,0 +1,253 @@
+Research notes
+==============
+
+Objective
+---------
+Build a futures signal/backtest notebook that can run unchanged when the same
+train_set files are replaced with data extended through February 2026.
+
+Design choices
+--------------
+1. Use adjusted C1 prices for PnL.
+   The instruction file says adjusted prices can be differenced directly and
+   multiplied by 5,000 bushels for one-lot PnL. That makes train_adjPrices1.csv
+   the clean trading return series.
+
+2. Use unadjusted C1/C2 prices for curve features.
+   The C1-C2 spread and ratio are economically meaningful measures of nearby
+   tightness, carry, contango, or backwardation. They are not used directly for
+   PnL because the instruction file says the adjusted series is the correct
+   continuous PnL series.
+
+3. Respect release lags.
+   Public inventories and receipts are lagged by two calendar days. Cargill
+   inventory and Cargill crush activity are lagged by one calendar day. COT is
+   lagged conservatively by three calendar days. All lagged features are then
+   forward-filled onto the adjusted-price trading calendar.
+
+4. Start with an interpretable model.
+   The notebook uses a Ridge regression implemented with numpy. This avoids
+   depending on scikit-learn and remains compatible with Python 3.6. Ridge was
+   chosen because feature blocks are correlated: momentum, curve, inventory,
+   receipts, and COT variables can overlap in what they explain.
+
+5. Use a cross-sectional portfolio.
+   Daily predictions are risk-adjusted, demeaned across the four commodities,
+   and scaled to one aggregate gross lot. This reduces broad grain beta and
+   focuses the backtest on relative signals.
+
+Signals attempted in this first implementation
+----------------------------------------------
+- 20-day and 60-day price momentum.
+- 5-day short-term reversal.
+- 20-day realized volatility.
+- C1-C2 curve spread and ratio.
+- 20-day change in the curve spread.
+- COT money-manager level and change.
+- COT producer/merchant open-interest-normalized level and change.
+- Public inventory level and change.
+- Public receipts level and change.
+- Cargill inventory level and change.
+- Cargill crush processed, planned, processed-minus-planned, and utilization.
+
+What worked so far
+------------------
+The improved version uses a five-day Ridge target with a small price/curve/COT
+core and a heavily regularized physical overlay. Adding an expanding median edge
+filter improved 2018-2020 out-of-sample Sharpe from -0.460 for the first broad
+Ridge model to 1.498, and it also beats the simple 60-day momentum baseline's
+0.619 out-of-sample Sharpe.
+
+To check overfit, I added expanding walk-forward versions that fit only on data
+available before each rebalance window. The first quarterly 5-day version was too
+weak, so I tested slower horizons and retraining frequencies. The better
+anti-overfit check is now an annual walk-forward 20-day Ridge. It has 2018-2020
+out-of-sample Sharpe of 1.347 and full-period Sharpe of 0.738.
+
+What did not work yet
+---------------------
+The first broad one-day Ridge model overfit badly. It had a very high in-sample
+Sharpe but negative out-of-sample Sharpe. Putting every feature, including
+Cargill crush, into the same unconstrained model was too fragile.
+
+The improved annual walk-forward model is still much stronger after 2018 than
+before 2018. That is a real regime risk, not something to hide with an
+event-specific rule.
+
+Next tests
+----------
+1. Add walk-forward fitting instead of one static train/test split.
+2. Test soybean-specific crush models.
+3. Add seasonal normalizations for inventories and receipts by week-of-year.
+4. Add transaction-cost sensitivity once realistic per-lot assumptions are known.
+5. Test whether the same five-day horizon remains best on the February 2026
+   extension.
+6. Add a 2022 Russia/Ukraine war period test once the extended dataset is
+   available.
+7. Treat 2021-February 2026 as the true holdout. Do not tune the edge threshold
+   or feature set again after seeing that result without creating a new holdout.
+
+Additional model tests
+----------------------
+I tested statsmodels OLS and a Kalman-style recursive least-squares model. The
+first Kalman run looked very strong, but I found and rejected a lookahead issue:
+it updated on forward returns before those returns would have been known. After
+fixing the timing, Kalman/RLS did not beat annual Ridge. OLS had a decent
+full-period Sharpe but much weaker out-of-sample Sharpe. Ridge remains the final
+walk-forward validation model.
+
+Additional feature/portfolio tests
+----------------------------------
+I also tested seasonal normalization for physical data, soybean-specific crush
+features, and directional/hybrid portfolio construction. Seasonal physical
+features improved full-period Sharpe in a simplified annual model but reduced
+out-of-sample Sharpe and PnL compared with the annual Ridge walk-forward
+benchmark. Soybean-only crush and directional/hybrid portfolio construction did
+not improve results. These are logged as rejected or future-extension ideas, not
+final strategy changes.
+
+Ideas adapted from oil/gas/FX research
+--------------------------------------
+I tested EWMA smoothing, weak-signal thresholds, top-N portfolios, volatility
+targeting, crisis caps, and a stress-dependent trend/mean-reversion rule sleeve.
+The rule sleeve produced high OOS Sharpe but much larger drawdown and turnover.
+Risk-controlled versions were cleaner but did not beat the annual Ridge
+walk-forward on the main balance of OOS PnL, full-period robustness, and model
+simplicity. These are logged as diagnostics, not final changes.
+
+Holding period and family weighting
+-----------------------------------
+The model predicts multi-day returns but currently recalculates positions daily.
+I tested explicit 2/3/5/10/20-day holding periods through less frequent
+rebalancing and staggered holdings. A 2-day hold helped the static candidate, but
+it did not improve the annual walk-forward validation on OOS Sharpe/PnL. I also
+tested equal weighting across price, positioning, and fundamental families. The
+family-balanced approach was conceptually cleaner but empirically weaker than
+the current Ridge walk-forward.
+
+ML algorithm tests
+------------------
+I tested sklearn ML alternatives under the same annual walk-forward discipline:
+Ridge/ElasticNet/Lasso/Huber, shallow Random Forests, Extra Trees, Gradient
+Boosting, HistGradientBoosting, KNN, SVR, and a validation-MSE selector. I tested
+both complete-row data and median imputation with missing-value indicators.
+
+The best imputed ML model was shallow Gradient Boosting with a 10-day target:
+OOS Sharpe 1.274 and OOS PnL 10,450. That was close, but still below the annual
+Ridge walk-forward benchmark of OOS Sharpe 1.347 and OOS PnL 11,579. It also had
+higher turnover and lower full-period Sharpe. Because the sample is small,
+physical features are sparse, and nonlinear trees can split on regime-specific
+noise, I did not promote ML into the final strategy.
+
+Online research follow-up
+-------------------------
+I checked public commodity-futures research and tested the most relevant ideas:
+momentum plus term structure, hedging pressure/COT, storage/inventory, basis
+momentum, multi-factor combinations, lower-frequency rebalancing, staggered
+holdings, and edge filters.
+
+The literature-style factors contained signal, but standalone versions were
+fragile in this four-commodity grain dataset. The strongest standalone factor,
+price + term structure + hedging pressure + storage, had OOS Sharpe 1.468 but
+only full Sharpe 0.265 and a max drawdown of -11,814, so it was not robust.
+
+The best near-improvement was an expanding 60th-percentile edge filter on the
+annual Ridge walk-forward predictions. It improved OOS Sharpe from 1.347 to
+1.611 and reduced turnover from 0.234 to 0.200, but lowered OOS PnL from 11,579
+to 9,863. A pre-2018 validation check did not uniquely select the 60th-percentile
+threshold, so promoting it would risk mild OOS tuning. I logged it as a future
+holdout-test idea, not a final strategy change.
+
+Spread instrument extension
+---------------------------
+I added a separate spread-instrument experiment. Calendar spreads are now tested
+as long front/short second adjusted futures PnL, while inter-commodity spreads
+are tested as volatility-hedged long/short pairs across grains. Crack/crush
+spreads were not tested as tradable instruments because the dataset does not
+include soybean meal/oil futures prices.
+
+Calendar spreads were too weak: OOS Sharpe 0.176 and OOS PnL 188. Inter-commodity
+spreads had real but weaker standalone signal: OOS Sharpe 0.768 and OOS PnL
+7,496. The best practical result was using inter-commodity spreads as a modest
+overlay. An 80% outright / 20% inter-commodity overlay improved OOS Sharpe from
+1.347 to 1.416, full Sharpe from 0.738 to 0.836, and max drawdown from -4,001 to
+-3,615, but OOS PnL fell from 11,579 to 10,763. I would treat this as an
+extension candidate for the 2021-February 2026 holdout, not as a replacement for
+the current final strategy yet.
+
+Cargill usage and holding-period cleanup
+----------------------------------------
+The main outright strategy uses both Cargill datasets. `cgl_inv` becomes
+inventory level/change features, and `cgl_crush` becomes processed/planned,
+surprise, and utilization features. The static and walk-forward Ridge models use
+both through the physical overlay. Some later diagnostics, especially
+literature-style factors and spread-instrument tests, used Cargill inventory but
+not crush because the crush file is aggregate processed/planned data rather than
+a clean commodity-pair or calendar-spread tradable input.
+
+I moved the holding-period mechanics into the module. The result is unchanged:
+2-day skip-rebalance improves the static edge-filtered candidate, lifting OOS
+Sharpe from 1.498 to 1.730 and reducing turnover from 0.234 to 0.161. The
+walk-forward anti-overfit model does not improve with holding periods, so the
+2-day version remains a promising execution variant rather than the official
+final model.
+
+Filter and sleeve tests
+-----------------------
+I tested prediction-dispersion filters, 2/5-day holding periods, position
+smoothing, a multi-condition prediction/curve/momentum dispersion filter, and a
+simple carry/storage sleeve. The negative crisis period for the current static
+strategy is the US-China trade war, where baseline Sharpe is -0.045.
+
+The strongest result was the multi-condition filter. The validation-selected
+version uses 40th-percentile expanding thresholds for prediction dispersion,
+curve dispersion, and momentum dispersion. It improved OOS Sharpe from 1.498 to
+2.098 and US-China Sharpe from -0.045 to 1.496, but OOS PnL fell from 10,304 to
+7,556 because it trades fewer high-opportunity days. A 50th-percentile version
+had even higher OOS Sharpe, but is more OOS-tuned.
+
+The 2-day skip-rebalance also improved both the whole strategy and the negative
+period: OOS Sharpe 1.730, OOS PnL 11,637, turnover 0.161, and US-China Sharpe
+0.517. Position smoothing and the simple carry/storage sleeve helped selected
+risk or crisis metrics but did not improve the whole strategy enough to promote.
+
+Cost and margin stress test
+---------------------------
+I added cost/margin stress cases with explicit CDF, trade cost, and holding cost
+columns. CDF is total cost divided by absolute gross PnL over active days. The
+market-assumption case uses 8.75 dollars per one-way lot traded and 5% annual
+margin funding. Margin assumptions are approximate per-lot stress inputs, not
+broker quotes.
+
+After market costs, 2-day skip-rebalance remains the best OOS PnL candidate
+with OOS Sharpe 1.550 and OOS PnL 10,439. The multi-condition filter remains the
+best Sharpe/crisis candidate with OOS Sharpe 1.801 and full Sharpe 1.488. The
+annual walk-forward Ridge is more cost-sensitive, falling to OOS Sharpe 1.058
+under the market-cost case.
+
+I also clarified in the notebook that the regime table is ex-post diagnostics.
+The named regimes are known historical event windows; the `picked_strategy`
+column is not a live switching rule. The live-style switch in this research is
+the multi-condition opportunity filter based on expanding prediction, curve, and
+momentum dispersion thresholds.
+
+Testability of next ideas
+-------------------------
+Adding soybean meal/oil futures is not testable with the current train_set
+alone. It requires meal and oil futures price histories, contract multipliers,
+leg ratios, and leg-level costs. Once those are available, the crush spread
+should be treated as a tradable instrument and tested on the extended holdout.
+
+Pre-registering the multi-condition filter is testable now as a written rule:
+freeze prediction/curve/momentum dispersion thresholds at q=0.40/0.40/0.40,
+use expanding lagged thresholds only, and do not change them after seeing the
+2021-February 2026 holdout. The notebook now states this explicitly.
+
+Overfit warning on hard thresholds
+----------------------------------
+The q=0.40/0.40/0.40 multi-condition filter can still be overfit because it was
+selected after looking at this sample and validation window. I added two more
+natural regime-weighting checks: continuous opportunity-weighted exposure and a
+lagged trailing-performance ensemble. They avoid named historical regime labels
+and hard cutoffs, but they underperformed in the current data. They should be
+kept as holdout robustness checks, not promoted yet.

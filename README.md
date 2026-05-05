@@ -1,1 +1,1 @@
-# cgl_challenge
+# challenge

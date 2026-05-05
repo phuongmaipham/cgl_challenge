@@ -1,0 +1,80 @@
+OLS / Ridge / RLS / Kalman commodity-sleeve test
+Date: 2026-05-02
+
+Controls
+--------
+- Expanding OLS and Ridge refit every 21 trading days.
+- Ridge alpha is fixed at 100.0; it is not tuned on OOS.
+- RLS uses fixed lambda 0.995 and delta 100.0.
+- Kalman uses fixed process noise q 1.0e-05.
+- Prediction at date t uses only observations before or at date t, then positions trade next-day PnL via the standard backtester.
+- Predictions are converted to lagged rolling z-score signals before volatility targeting.
+
+
+Corn results
+============
+External data warnings: none
+Feature count: 18
+Features: given_mom_20, given_mom_60, given_rev_5, given_curve_spread, given_curve_ratio, given_cot_pm_oi_level, given_inventory_pressure, given_cgl_inventory_pressure, given_curve_tightness, given_price_family, given_trend, given_cgl_crush_activity, given_physical_family, external_relative_grain_family, external_fx_export_family, external_macro_risk_family, external_weather_hdd_cdd_family, external_ethanol_family
+
+All model rows
+--------------
+                   model       mode  cost_adjusted  train_sharpe  validation_sharpe  validation_max_drawdown  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown  turnover  avg_gross_exposure
+   kalman_dynamic_linear  long_only          False         0.362             -0.892                 -481.833        0.643   648.219           -606.724        0.270     -1006.713     0.020               0.118
+   kalman_dynamic_linear long_short          False         0.572             -0.303                 -716.453        0.031    43.265           -959.212        0.213     -1186.136     0.018               0.100
+           ols_expanding long_short          False        -0.211             -0.150                 -504.099       -0.326  -203.059           -395.434       -0.217     -1217.856     0.011               0.088
+          rls_lambda0995 long_short          False         0.235              0.238                 -569.277       -0.566  -629.272           -817.366       -0.050     -1323.098     0.018               0.080
+ridge_expanding_alpha100  long_only          False        -0.150             -0.217                 -343.386       -0.929  -587.039           -830.131       -0.452     -1141.965     0.017               0.096
+          rls_lambda0995  long_only          False        -0.103             -0.625                 -579.946       -0.947  -528.000           -657.576       -0.545     -1250.986     0.019               0.081
+ridge_expanding_alpha100 long_short          False        -0.038              0.013                 -512.383       -0.973 -1184.768          -1597.233       -0.324     -1664.870     0.017               0.091
+           ols_expanding  long_only          False        -0.118             -0.311                 -378.191       -1.295  -162.719           -197.157       -0.272      -626.084     0.009               0.075
+   kalman_dynamic_linear  long_only           True         0.315             -1.001                 -513.613        0.519   524.021           -651.620        0.178     -1042.628     0.020               0.118
+   kalman_dynamic_linear long_short           True         0.525             -0.418                 -739.780       -0.112  -157.129          -1041.025        0.121     -1224.426     0.018               0.100
+           ols_expanding long_short           True        -0.259             -0.253                 -524.684       -0.381  -237.046           -398.078       -0.281     -1338.671     0.011               0.088
+          rls_lambda0995 long_short           True         0.149              0.114                 -627.815       -0.725  -806.753           -912.858       -0.170     -1483.921     0.018               0.080
+ridge_expanding_alpha100  long_only           True        -0.206             -0.307                 -348.536       -1.063  -671.310           -893.342       -0.546     -1269.669     0.017               0.096
+          rls_lambda0995  long_only           True        -0.185             -0.748                 -620.992       -1.117  -623.128           -740.296       -0.670     -1401.524     0.019               0.081
+ridge_expanding_alpha100 long_short           True        -0.088             -0.098                 -535.048       -1.120 -1363.944          -1738.103       -0.418     -2021.764     0.017               0.091
+           ols_expanding  long_only           True        -0.169             -0.403                 -383.653       -1.341  -168.407           -200.796       -0.331      -682.585     0.009               0.075
+
+Best cost-adjusted OOS row
+--------------------------
+- kalman_dynamic_linear long_only: OOS Sharpe 0.519, PnL 524.021, DD -651.620, full Sharpe 0.178, full DD -1042.628
+
+Overfit read
+------------
+- Model looks good OOS but did not have clean validation support; treat as research luck until further holdout.
+
+Soybeans results
+================
+External data warnings: none
+Feature count: 18
+Features: given_mom_20, given_mom_60, given_rev_5, given_curve_spread, given_curve_ratio, given_cot_pm_oi_level, given_inventory_pressure, given_cgl_inventory_pressure, given_curve_tightness, given_price_family, given_trend, given_crush_pressure, given_physical_family, external_crush_family, external_relative_grain_family, external_fx_export_family, external_macro_risk_family, external_weather_hdd_cdd_family
+
+All model rows
+--------------
+                   model       mode  cost_adjusted  train_sharpe  validation_sharpe  validation_max_drawdown  test_sharpe  test_pnl  test_max_drawdown  full_sharpe  max_drawdown  turnover  avg_gross_exposure
+   kalman_dynamic_linear  long_only          False         0.568             -0.166                 -812.330        0.680   621.312           -554.979        0.427     -1307.327     0.007               0.053
+ridge_expanding_alpha100  long_only          False         0.748             -0.232                 -625.761        0.590   454.942          -1038.279        0.467     -1467.540     0.008               0.045
+ridge_expanding_alpha100 long_short          False         0.496             -0.436                -1014.357        0.534   798.647           -855.685        0.305     -1501.970     0.008               0.044
+   kalman_dynamic_linear long_short          False         0.498             -0.143                 -685.398        0.375   583.159           -724.619        0.307     -1125.266     0.007               0.047
+          rls_lambda0995  long_only          False         0.773             -1.250                 -523.318        0.147   101.541           -676.340        0.156     -1337.157     0.009               0.035
+           ols_expanding long_short          False         0.429             -0.533                -1043.673       -0.231  -163.477           -516.437        0.030     -1192.513     0.006               0.038
+          rls_lambda0995 long_short          False         0.673             -1.395                -1332.310       -0.624  -878.805          -1760.588       -0.275     -2848.014     0.009               0.037
+           ols_expanding  long_only          False         0.844             -0.331                 -649.820       -0.942  -305.894           -481.183        0.148      -938.841     0.005               0.034
+   kalman_dynamic_linear  long_only           True         0.541             -0.204                 -823.505        0.626   571.322           -591.493        0.389     -1361.087     0.007               0.053
+ridge_expanding_alpha100  long_only           True         0.719             -0.292                 -643.076        0.529   407.831          -1056.957        0.420     -1508.877     0.008               0.045
+ridge_expanding_alpha100 long_short           True         0.462             -0.495                -1042.591        0.470   703.179           -892.540        0.255     -1578.579     0.008               0.044
+   kalman_dynamic_linear long_short           True         0.469             -0.186                 -711.752        0.317   493.455           -769.562        0.266     -1258.881     0.007               0.047
+          rls_lambda0995  long_only           True         0.723             -1.302                 -536.775        0.077    53.685           -705.625        0.098     -1409.132     0.009               0.035
+           ols_expanding long_short           True         0.394             -0.592                -1071.541       -0.275  -194.665           -519.594       -0.013     -1234.975     0.006               0.038
+          rls_lambda0995 long_short           True         0.622             -1.454                -1363.429       -0.691  -973.606          -1818.215       -0.334     -3010.749     0.009               0.037
+           ols_expanding  long_only           True         0.816             -0.390                 -667.521       -0.980  -318.079           -488.427        0.110      -968.734     0.005               0.034
+
+Best cost-adjusted OOS row
+--------------------------
+- kalman_dynamic_linear long_only: OOS Sharpe 0.626, PnL 571.322, DD -591.493, full Sharpe 0.389, full DD -1361.087
+
+Overfit read
+------------
+- Model looks good OOS but did not have clean validation support; treat as research luck until further holdout.

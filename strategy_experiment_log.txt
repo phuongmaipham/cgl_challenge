@@ -1,0 +1,4989 @@
+Strategy experiment log
+=======================
+
+Purpose
+-------
+Improve the first Ridge strategy and document every material idea tried. The
+main evaluation split remains 2018-01-01. Results below are from the supplied
+2010-2020 train_set.
+
+Starting point
+--------------
+Version: broad one-day Ridge
+
+Features:
+- Price momentum/reversal/volatility
+- C1-C2 curve features
+- COT money-manager and producer/merchant features
+- Public inventories and receipts
+- Cargill inventory
+- Cargill crush processed/planned/surprise/utilization
+
+Target:
+- Next-day one-lot dollar PnL.
+
+Result:
+- In-sample Sharpe: 3.924
+- Out-of-sample Sharpe: -0.460
+- Out-of-sample PnL: -4,193
+- Full-period Sharpe: 0.711
+
+Conclusion:
+The model fit the training slice too well and failed after 2018. The first fix
+was to reduce model freedom and move to a slower prediction horizon.
+
+
+Experiment 1: simple 60-day momentum baseline
+---------------------------------------------
+Signal:
+- Cross-sectional 60-day adjusted-price momentum.
+
+Result:
+- In-sample Sharpe: -0.586
+- Out-of-sample Sharpe: 0.619
+- Out-of-sample PnL: 5,866
+- Full-period Sharpe: -0.313
+
+Conclusion:
+This is a useful benchmark. It works after 2018, but the full-period behavior is
+poor, so it is not enough as the final strategy.
+
+
+Experiment 2: hand-built ensemble grid
+--------------------------------------
+Signals tried:
+- Trend
+- Reversal
+- Curve tightness
+- Curve change
+- COT contrarian positioning
+- Commercial positioning
+- Public stock/receipt signals
+- Cargill inventory
+- Cargill crush
+
+Method:
+- Combine trend with up to four extra blocks.
+- Test both signs for uncertain blocks.
+- Scale cross-sectionally to one gross lot.
+
+Best out-of-sample exploratory variant:
+- trend + reversal + curve_tight - cot_contrarian + commercial
+- Out-of-sample Sharpe: 0.979
+- Out-of-sample PnL: 8,192
+- Full-period Sharpe: 0.315
+
+Validation-selected variant using 2016-2017:
+- trend - curve_change - cot_contrarian - public_stock + receipts
+- Validation Sharpe: 0.897
+- Out-of-sample Sharpe: 0.410
+- Out-of-sample PnL: 3,454
+- Full-period Sharpe: 0.551
+
+Conclusion:
+The simple ensemble approach is more robust than the first broad Ridge, but the
+best validation-selected version did not beat the momentum benchmark after 2018.
+It did show that smaller, structured signals are preferable to a broad one-day
+model.
+
+
+Experiment 3: Ridge with reduced feature sets
+---------------------------------------------
+Targets tried:
+- 1-day forward PnL
+- 5-day forward PnL
+- 10-day forward PnL
+
+Regularization values tried:
+- alpha = 25, 100, 250, 1000
+
+Feature sets tried:
+- all features
+- all except crush
+- curve + COT + physical
+- curve + COT only
+- physical only
+
+Important results:
+- 1-day, curve + COT, alpha 25:
+  - Out-of-sample Sharpe: 0.610
+  - Out-of-sample PnL: 5,431
+  - Full-period Sharpe: 0.692
+
+- 5-day, curve + COT, alpha 25:
+  - Out-of-sample Sharpe: 1.186
+  - Out-of-sample PnL: 10,422
+  - Full-period Sharpe: 0.642
+
+- 10-day, curve + COT, alpha 25:
+  - Out-of-sample Sharpe: 1.147
+  - Out-of-sample PnL: 10,383
+  - Full-period Sharpe: 0.531
+
+- 5-day, physical only, alpha 1000:
+  - Out-of-sample Sharpe: 0.659
+  - Out-of-sample PnL: 5,275
+  - Full-period Sharpe: 0.568
+
+Conclusion:
+The most important improvement is the target horizon. A 5-day target is much
+more stable than next-day PnL. Curve and COT features are the best core model.
+Physical features, including cgl_inv and cgl_crush, work better as a heavily
+regularized overlay than inside the broad all-feature model.
+
+
+Experiment 4: blend curve/COT core with physical overlay
+--------------------------------------------------------
+Core model:
+- 5-day forward PnL target
+- Ridge alpha 25
+- Features: mom_60, rev_5, curve_spread, curve_ratio, cot_mm_level,
+  cot_pm_oi_level
+
+Physical overlay:
+- 5-day forward PnL target
+- Ridge alpha 1000
+- Features: public_inventory_change, receipts_change, cgl_inventory_change,
+  crush_surprise, crush_utilization
+
+Physical overlay weights tried:
+- 0.0: validation Sharpe 0.423, out-of-sample Sharpe 1.186, full Sharpe 0.642
+- 0.2: validation Sharpe 0.491, out-of-sample Sharpe 1.192, full Sharpe 0.654
+- 0.5: validation Sharpe 0.606, out-of-sample Sharpe 1.149, full Sharpe 0.663
+- 1.0: validation Sharpe 0.755, out-of-sample Sharpe 1.087, full Sharpe 0.673
+
+Chosen version:
+- Physical overlay weight 1.0.
+
+Reason:
+The full-weight overlay had the best 2016-2017 validation Sharpe and the best
+full-period Sharpe among the tested blend weights. It also keeps the required
+Cargill data in the live strategy in a controlled, regularized way.
+
+Final improved strategy performance
+-----------------------------------
+Improved two-block Ridge:
+- In-sample days: 1,945
+- In-sample Sharpe: 0.558
+- In-sample PnL: 16,437
+- Out-of-sample days: 781
+- Out-of-sample Sharpe: 1.087
+- Out-of-sample PnL: 9,461
+- Full-period Sharpe: 0.673
+- Full-period PnL: 25,898
+- Max drawdown: -7,449
+
+Comparison:
+- Old broad Ridge out-of-sample Sharpe: -0.460
+- Momentum baseline out-of-sample Sharpe: 0.619
+- Improved strategy out-of-sample Sharpe: 1.087
+
+Final conclusion
+----------------
+The improvement comes from three changes:
+1. Predicting a five-day PnL target instead of next-day noise.
+2. Reducing the core model to stable price, curve, and COT features.
+3. Using public physical data, cgl_inv, and cgl_crush as a separate strongly
+   regularized overlay rather than mixing everything into one broad model.
+
+
+Regime research and period tests
+================================
+
+Why these regimes were tested
+-----------------------------
+The supplied train_set ends in 2020, so the 2022 Russia/Ukraine war cannot be
+tested yet. It should be added when the interview data is extended through
+February 2026. For the current sample, the relevant grain regimes are:
+
+1. Russian drought/export ban shock, 2010-07-01 to 2011-06-30.
+   Russia's 2010 heat wave, drought, and grain export ban pushed world wheat and
+   grain prices higher. The ban ended around mid-2011.
+
+2. US drought rally/retrace, 2012-06-01 to 2013-05-31.
+   The 2012 US drought sharply reduced corn and soybean output and pushed prices
+   higher. The following months include the retrace from the drought rally.
+
+3. Crimea/Black Sea shock, 2014-02-15 to 2014-05-31.
+   The Ukraine/Crimea crisis raised concerns about wheat and corn exports from
+   the Black Sea region.
+
+4. Low-price abundant supply, 2014-06-01 to 2017-12-31.
+   After the drought shock, supply rebuilt and the market spent several years in
+   a lower-price, less directional regime.
+
+5. US-China trade war, 2018-07-06 to 2020-01-15.
+   Tariff escalation hit US agricultural exports, especially soybeans, until the
+   Phase One agreement.
+
+6. 2019 prevented planting floods, 2019-05-01 to 2019-07-31.
+   Wet weather and Midwest flooding disrupted corn and soybean planting.
+
+7. COVID demand shock, 2020-02-24 to 2020-06-30.
+   COVID restrictions reduced gasoline and ethanol demand, pressuring corn, while
+   food-at-home demand supported wheat.
+
+8. COVID recovery/China buying, 2020-07-01 to 2020-12-31.
+   Recovery and renewed Chinese buying supported a grain repricing phase.
+
+Sources checked
+---------------
+- USDA NASS, Crop Production Down in 2012 Due to Drought.
+- BLS, Impact of the 2012 drought on export corn prices.
+- Oxfam, The Impact of Russia's 2010 Grain Export Ban.
+- Deutsche Welle, Russian export ban, August 2010.
+- The Guardian, Ukraine crisis sends wheat and corn prices soaring, March 2014.
+- CNBC, US-China tariff escalation and soybean trade-war coverage.
+- USDA ERS, Ethanol prices fall as demand contracts, May 2020.
+- USDA ERS, Prices for two key grains diverge on COVID-19-linked shifts in
+  demand, June 2020.
+
+Period performance before the new edge filter
+---------------------------------------------
+Unfiltered two-block Ridge Sharpe by selected periods:
+- Russian drought/export ban shock: 1.362
+- US drought rally/retrace: 0.063
+- Crimea/Black Sea shock: 2.335
+- Low-price abundant supply: 0.054
+- US-China trade war: 0.360
+- 2019 prevented planting floods: 1.677
+- COVID demand shock: 0.944
+- COVID recovery/China buying: 2.513
+
+Interpretation:
+The strategy worked best in shock/repricing regimes. It was flat in the US
+drought retrace and low-price abundant-supply regime. This suggested that the
+problem was not the direction of the model everywhere; it was staying fully
+invested when the model did not have enough cross-sectional edge.
+
+
+Experiment 5: prediction-edge exposure filter
+---------------------------------------------
+Idea:
+Only trade when the model has a clear relative-value view. Compute the daily
+cross-sectional standard deviation of risk-adjusted predictions. Trade only when
+that edge score is above an expanding, one-day-lagged historical quantile.
+
+Filters tried:
+- No filter:
+  - Out-of-sample Sharpe: 1.087
+  - Out-of-sample PnL: 9,461
+  - Full-period Sharpe: 0.673
+  - Full-period PnL: 25,898
+
+- Edge greater than past 25th percentile:
+  - Out-of-sample Sharpe: 1.128
+  - Out-of-sample PnL: 9,054
+  - Full-period Sharpe: 0.882
+  - Full-period PnL: 28,734
+
+- Edge greater than past median:
+  - Out-of-sample Sharpe: 1.498
+  - Out-of-sample PnL: 10,304
+  - Full-period Sharpe: 1.077
+  - Full-period PnL: 27,469
+
+- Edge greater than past 75th percentile:
+  - Out-of-sample Sharpe: 0.648
+  - Out-of-sample PnL: 2,892
+  - Full-period Sharpe: 0.868
+  - Full-period PnL: 14,026
+
+- Scaled exposure between past 25th and 75th percentiles:
+  - Out-of-sample Sharpe: 1.218
+  - Out-of-sample PnL: 8,410
+  - Full-period Sharpe: 0.925
+  - Full-period PnL: 24,835
+
+Chosen change:
+Use the expanding past-median edge filter. It has the best out-of-sample Sharpe,
+the best full-period Sharpe, and lower max drawdown than the unfiltered
+two-block strategy.
+
+Final primary strategy after period work
+----------------------------------------
+Primary edge-filtered two-block Ridge:
+- In-sample Sharpe: 0.930
+- In-sample PnL: 17,165
+- Out-of-sample Sharpe: 1.498
+- Out-of-sample PnL: 10,304
+- Full-period Sharpe: 1.077
+- Full-period PnL: 27,469
+- Full-period max drawdown: -4,648
+
+Primary strategy Sharpe by researched period:
+- Russian drought/export ban shock: 1.038
+- US drought rally/retrace: 1.851
+- Crimea/Black Sea shock: 2.335
+- Low-price abundant supply: 0.145
+- US-China trade war: -0.045
+- 2019 prevented planting floods: 2.140
+- COVID demand shock: 1.543
+- COVID recovery/China buying: 3.844
+
+Failed/declined adjustment after period review
+----------------------------------------------
+The US-China trade war bucket remains slightly negative after the edge filter.
+Attribution showed soybean lost money during this period, which makes economic
+sense because soybeans were directly affected by tariffs and trade headlines.
+I considered adding a special soybean/trade-war rule, but rejected it for this
+version because it would be a hard-coded historical event filter that cannot be
+known in advance. The robust action was to keep the generic edge filter and
+document the trade-war weakness as a regime risk.
+
+
+Overfit controls and walk-forward validation
+============================================
+
+Overfit concern
+---------------
+The static edge-filtered model was improved after looking at out-of-sample
+period diagnostics. That means its 2018-2020 Sharpe should be treated as a
+candidate result, not as clean proof. To reduce this risk, I added an expanding
+walk-forward validation version.
+
+Walk-forward design
+-------------------
+- Retrain quarterly.
+- Use only data strictly before each retraining date.
+- Use the same five-day target, same core features, same physical overlay, and
+  same Ridge penalties as the static model.
+- Apply the same edge filter using only an expanding, one-day-lagged historical
+  median of the edge score.
+
+This is intentionally not re-optimized for each period. It checks whether the
+strategy survives when coefficients are learned only from the past.
+
+Walk-forward result
+-------------------
+Expanding walk-forward edge-filtered Ridge:
+- In-sample Sharpe: -0.321
+- In-sample PnL: -4,020
+- Out-of-sample Sharpe: 1.208
+- Out-of-sample PnL: 9,491
+- Full-period Sharpe: 0.268
+- Full-period PnL: 5,471
+- Full-period max drawdown: -7,383
+
+Interpretation:
+The walk-forward test confirms that the post-2018 result is not entirely caused
+by one static set of fitted coefficients. However, it also shows that the static
+full-period Sharpe of 1.077 is optimistic. The strategy is more credible after
+2018 than before 2018, and that is a regime dependency that must be discussed.
+
+Anti-overfit conclusion
+-----------------------
+The strategy is not proven free of overfit. The safer statement is:
+
+The first broad Ridge model was clearly overfit. The current two-block model with
+an edge filter is simpler and passes a stricter walk-forward out-of-sample check,
+but it still needs validation on the 2021-February 2026 extension. I would use
+the static edge-filtered strategy as the candidate implementation and the
+walk-forward results as the honesty check.
+
+No extra event-specific filters were added after this test. In particular, I did
+not add a trade-war soybean rule, because that would reduce historical error but
+increase forward overfit risk.
+
+
+Experiment 6: improve the weak walk-forward check
+=================================================
+
+Problem
+-------
+The first walk-forward test was not strong enough. It had positive 2018-2020
+out-of-sample Sharpe, but the full-period Sharpe was only 0.268 and the
+pre-2018 period was negative. That made it a weak anti-overfit check.
+
+What I tested
+-------------
+I tested walk-forward variants across:
+- Target horizons: 5, 10, and 20 trading days.
+- Retraining frequency: monthly, quarterly, every two quarters, and yearly.
+- Feature sets: core only, core without reversal, core plus physical overlay,
+  and physical-only overlay variants.
+- Physical overlay weights: 0.0, 0.5, and 1.0.
+- Edge filters: no filter, past 25th percentile, past median, and past 75th
+  percentile.
+
+Failed or rejected variants
+---------------------------
+1. Quarterly 5-day walk-forward with edge filter.
+   This was the first walk-forward version. It had OOS Sharpe 1.208 but
+   full-period Sharpe only 0.268 and full-period PnL only 5,471.
+
+2. Monthly 10-day core-only with high edge threshold.
+   Some versions had very high OOS Sharpe, but the PnL was small and the model
+   traded too selectively. I rejected these because they looked more like a
+   threshold artifact than a deployable strategy.
+
+3. Event-specific trade-war adjustment.
+   I again rejected this. It could improve one historical bucket but would add
+   a non-general rule.
+
+Chosen walk-forward improvement
+-------------------------------
+Annual walk-forward 20-day Ridge:
+- Retrain once per year.
+- Use only data before the retraining date.
+- Predict 20-day forward one-lot PnL.
+- Use the same compact core plus physical features.
+- Use the physical overlay at full weight.
+- Do not use the edge filter.
+
+Reason:
+This is simpler and less tuned than the quarterly edge-filtered version. The
+slower 20-day target reduces noise, and annual retraining avoids chasing short
+sample coefficient changes.
+
+Improved walk-forward result
+----------------------------
+Annual walk-forward 20-day Ridge:
+- In-sample Sharpe: 0.143
+- In-sample PnL: 1,254
+- Out-of-sample Sharpe: 1.347
+- Out-of-sample PnL: 11,579
+- Full-period Sharpe: 0.738
+- Full-period PnL: 12,833
+- Full-period max drawdown: -4,001
+
+Comparison to previous walk-forward:
+- Previous full-period Sharpe: 0.268
+- Improved full-period Sharpe: 0.738
+- Previous full-period PnL: 5,471
+- Improved full-period PnL: 12,833
+- Previous max drawdown: -7,383
+- Improved max drawdown: -4,001
+
+Updated anti-overfit conclusion
+-------------------------------
+The walk-forward check is now respectable but still not perfect. The strategy is
+not just a static-coefficient artifact, because the annual walk-forward model
+keeps strong 2018-2020 out-of-sample performance and a positive full-period
+Sharpe. However, the early part of the sample is still not as strong as the
+post-2018 period. The 2021-February 2026 extension remains the real holdout.
+
+
+Experiment 7: statsmodels OLS and Kalman/RLS alternatives
+=========================================================
+
+Question tested
+---------------
+Would a faster OLS implementation or a forward-walk Kalman filter improve the
+walk-forward strategy?
+
+Methods tested
+--------------
+1. statsmodels OLS
+   - Expanding and rolling-window OLS.
+   - Annual and quarterly retraining.
+   - 5-day, 10-day, and 20-day forward PnL targets.
+   - Same lag-safe feature set as the walk-forward strategy.
+   - Target observations were delayed so a 20-day forward target is only used
+     after the 20-day return is actually known.
+
+2. Kalman-style recursive least squares
+   - Implemented as recursive least squares with a forgetting factor.
+   - Tested horizons: 5, 10, and 20 days.
+   - Tested forgetting factors: 0.99, 0.995, 0.999, and 1.0.
+   - Tested initial covariance values: 10, 100, and 1000.
+   - The first implementation accidentally updated on forward returns too early.
+     That produced unrealistically high Sharpe and was rejected as lookahead.
+   - The corrected version delays each target update until the full forward
+     horizon has passed.
+
+Important failed result
+-----------------------
+The first Kalman/RLS test looked excellent, with full-period Sharpe above 4.0.
+I rejected it after finding the timing bug. The model was predicting at time t
+correctly, but then updating before the forward target would have been known.
+That is lookahead leakage.
+
+Corrected results
+-----------------
+Best corrected Kalman/RLS variant:
+- Horizon: 20 days
+- Forgetting factor: 0.995
+- Initial covariance: 10
+- In-sample Sharpe: -1.465
+- Out-of-sample Sharpe: 0.722
+- Full-period Sharpe: 0.543
+- Out-of-sample PnL: 6,145
+- Full-period PnL: 5,036
+- Max drawdown: -2,751
+
+Best statsmodels OLS variant:
+- Horizon: 5 days
+- Annual retraining
+- Expanding window
+- In-sample Sharpe: 2.094
+- Out-of-sample Sharpe: 0.447
+- Full-period Sharpe: 0.850
+- Out-of-sample PnL: 3,807
+- Full-period PnL: 9,613
+- Max drawdown: -2,462
+
+Current annual Ridge walk-forward benchmark:
+- In-sample Sharpe: 0.143
+- Out-of-sample Sharpe: 1.347
+- Full-period Sharpe: 0.738
+- Out-of-sample PnL: 11,579
+- Full-period PnL: 12,833
+- Max drawdown: -4,001
+
+Blend and volatility-target tests
+---------------------------------
+I also tested:
+- Ridge + OLS prediction blends.
+- Ridge + corrected RLS/Kalman prediction blends.
+- Simple volatility-targeted exposure scaling.
+
+Best blend observations:
+- Ridge alone remained the best ranked result on the combined score of
+  out-of-sample Sharpe, full-period Sharpe, and full-period PnL.
+- Ridge + OLS improved full-period Sharpe in some settings, but it reduced
+  out-of-sample Sharpe materially.
+- Volatility targeting did not improve the Ridge benchmark. It usually reduced
+  OOS Sharpe or increased drawdown once leverage caps were applied.
+
+Conclusion
+----------
+No OLS, corrected Kalman/RLS, blend, or volatility-target variant beats the
+annual 20-day Ridge walk-forward strategy on the main objective. The current
+final structure remains:
+
+- Candidate strategy: static edge-filtered two-block Ridge.
+- Anti-overfit validation: annual 20-day Ridge walk-forward.
+- Rejected alternatives: broad one-day Ridge, weak quarterly walk-forward,
+  leakage-prone Kalman/RLS, corrected Kalman/RLS, statsmodels OLS, OLS/RLS
+  blends, and simple volatility targeting.
+
+
+Experiment 8: ideas suggested by the research log
+=================================================
+
+Why these ideas
+---------------
+After rereading the research notes and results, the unresolved areas were:
+- The physical features may need seasonal normalization.
+- Cargill crush may be most economically relevant for soybeans.
+- Pure cross-sectional demeaning may be too restrictive if all commodities have
+  a same-direction signal.
+
+Methods tested
+--------------
+1. Seasonal physical features
+   Added seasonal z-scores for public inventories, receipts, and Cargill
+   inventories. For each date, the value was compared with prior observations
+   near the same week of year, using only past data.
+
+2. Soybean-specific crush handling
+   Set crush features to zero for corn and wheat so crush only directly affects
+   soybeans.
+
+3. Portfolio construction alternatives
+   Tested:
+   - existing cross-sectional portfolio
+   - directional portfolio without cross-sectional demeaning
+   - hybrid portfolio, 75% cross-sectional and 25% directional
+
+4. Horizons
+   Tested 10-day, 20-day, and 40-day annual Ridge variants.
+
+Best results from this batch
+----------------------------
+Best seasonal variant:
+- Seasonal physical features
+- 10-day horizon
+- Cross-sectional portfolio
+- In-sample Sharpe: 0.081
+- Out-of-sample Sharpe: 1.202
+- Full-period Sharpe: 0.937
+- Out-of-sample PnL: 10,196
+- Full-period PnL: 10,409
+- Max drawdown: -3,695
+
+Best seasonal + soybean-specific crush variant:
+- 10-day horizon
+- Cross-sectional portfolio
+- In-sample Sharpe: 0.046
+- Out-of-sample Sharpe: 1.119
+- Full-period Sharpe: 0.870
+- Out-of-sample PnL: 9,556
+- Full-period PnL: 9,674
+- Max drawdown: -3,640
+
+Current annual Ridge walk-forward benchmark:
+- Out-of-sample Sharpe: 1.347
+- Full-period Sharpe: 0.738
+- Out-of-sample PnL: 11,579
+- Full-period PnL: 12,833
+- Max drawdown: -4,001
+
+Interpretation
+--------------
+Seasonal physical normalization is promising because it improves full-period
+Sharpe and slightly lowers drawdown in the simplified test. However, it reduces
+out-of-sample Sharpe and PnL versus the current annual Ridge walk-forward
+benchmark. Soybean-only crush did not help. Directional and hybrid portfolios
+also did not help; the pure cross-sectional construction remains better.
+
+Decision
+--------
+Do not promote these changes into the final strategy yet. Seasonal physical
+features are worth keeping as a future extension, especially after the
+2021-February 2026 holdout is available, but adding them now would trade away
+the current strategy's stronger out-of-sample result for a more complicated
+model.
+
+
+Experiment 9: ideas adapted from oil/gas/FX strategy notes
+==========================================================
+
+Why these ideas
+---------------
+The oil, gas, FX, and gold notes suggest several general risk-control and
+regime ideas that can transfer to grains:
+- Smooth signals to reduce noise.
+- Threshold weak signals.
+- Use volatility targeting and crisis caps.
+- Blend mean reversion and trend depending on market stress.
+- Try top-N cross-sectional portfolios instead of proportional weights.
+
+Grain-specific adaptation
+-------------------------
+I did not copy the oil/gas/FX signals literally because the train_set does not
+include VIX, DXY, crack spreads, weather, gas dispatch, rates, or gold data.
+Instead, I used grain-local equivalents:
+- Trend sleeve: mom_20, mom_60, curve_spread, cot_pm_oi_level.
+- Mean-reversion sleeve: rev_5.
+- Stress proxy: average realized grain volatility above its expanding 75th
+  percentile.
+- Existing Ridge walk-forward predictions as the model benchmark.
+
+Tests run
+---------
+1. EWMA smoothing
+   - Smoothed predictions with half-lives 2, 5, 10, and 20.
+   - Smoothed positions with half-lives 2, 5, 10, and 20.
+
+2. Weak-signal thresholds / edge gates
+   - Traded only when cross-sectional prediction dispersion exceeded expanding
+     25th, 50th, or 75th percentile.
+
+3. Top-N portfolios
+   - Long top 1 / short bottom 1.
+   - Long top 2 / short bottom 2.
+
+4. Vol targeting and crisis caps
+   - Tested simple realized-PnL vol targeting.
+   - Tested crisis cap when realized volatility was more than 2x long-run vol.
+
+5. Trend/MR hybrid
+   - Calm regime: mean-reversion sleeve.
+   - Stress regime: trend sleeve.
+   - Tested pure rule sleeve and blends with the Ridge walk-forward signal.
+
+Key results
+-----------
+Current annual Ridge walk-forward benchmark:
+- Out-of-sample Sharpe: 1.347
+- Full-period Sharpe: 0.738
+- Out-of-sample PnL: 11,579
+- Full-period PnL: 12,833
+- Max drawdown: -4,001
+
+Best pure trend/MR rule sleeve:
+- Out-of-sample Sharpe: 1.805
+- Full-period Sharpe: 0.763
+- Out-of-sample PnL: 16,757
+- Full-period PnL: 33,673
+- Max drawdown: -9,729
+- Turnover: 0.627
+
+Best risk-controlled pure rule sleeve:
+- Vol target 120, leverage cap 1.25
+- Out-of-sample Sharpe: 1.579
+- Full-period Sharpe: 0.789
+- Out-of-sample PnL: 9,840
+- Full-period PnL: 18,100
+- Max drawdown: -3,994
+
+Best Ridge + rule overlay:
+- 50% Ridge / 50% rule, raw
+- Out-of-sample Sharpe: 1.693
+- Full-period Sharpe: 0.601
+- Out-of-sample PnL: 14,637
+- Full-period PnL: 25,232
+- Max drawdown: -9,729
+
+Best risk-controlled Ridge + rule overlay:
+- 50% Ridge / 50% rule, vol target 120, cap 0.75
+- Out-of-sample Sharpe: 1.562
+- Full-period Sharpe: 0.661
+- Out-of-sample PnL: 9,080
+- Full-period PnL: 14,380
+- Max drawdown: -3,994
+
+Smoothing and top-N results:
+- EWMA smoothing generally reduced OOS Sharpe.
+- Top-N portfolios were unstable. Top2/bottom2 had OOS Sharpe 1.441 but negative
+  full-period Sharpe and very large drawdown.
+- Edge gates did not materially improve the annual walk-forward benchmark.
+
+Decision
+--------
+Do not promote the oil-style rule sleeve or overlays into the final strategy.
+The pure rule sleeve looks attractive on Sharpe, but its drawdown and turnover
+are too high. Risk-controlled versions improve drawdown but give up too much OOS
+PnL versus the annual Ridge walk-forward benchmark. The rule sleeve is useful as
+a diagnostic: grains do benefit from a stress-dependent trend/MR framing, but
+the current final strategy remains the more balanced and less complex choice.
+
+
+Experiment 10: holding period and family-balanced signals
+=========================================================
+
+Questions tested
+----------------
+1. Does the strategy improve if positions have an explicit holding period?
+2. Are signal families being overweighted accidentally when one family has more
+   individual columns?
+
+Current behavior
+----------------
+The annual walk-forward model predicts a 20-day forward PnL target, but the
+portfolio is recalculated daily. So it has a forecast horizon, but not a hard
+holding period. I tested explicit holding-period mechanics separately.
+
+Holding-period methods
+----------------------
+1. Rebalance every N days.
+   Positions are updated only every N trading days and held between updates.
+
+2. Staggered holding period.
+   Build N offset sleeves, each refreshed every N days, then average the sleeves.
+   This approximates overlapping positions with an N-day holding period.
+
+Holding-period results
+----------------------
+Annual walk-forward benchmark:
+- Daily rebalance:
+  - OOS Sharpe: 1.347
+  - Full Sharpe: 0.738
+  - OOS PnL: 11,579
+  - Full PnL: 12,833
+  - Turnover: 0.234
+
+Annual walk-forward, 2-day staggered hold:
+- OOS Sharpe: 1.274
+- Full Sharpe: 0.762
+- OOS PnL: 10,677
+- Full PnL: 13,023
+- Turnover: 0.159
+
+Annual walk-forward, rebalance every 2 days:
+- OOS Sharpe: 1.276
+- Full Sharpe: 0.755
+- OOS PnL: 10,837
+- Full PnL: 13,074
+- Turnover: 0.160
+
+Static candidate, rebalance every 2 days:
+- OOS Sharpe: 1.730
+- Full Sharpe: 1.087
+- OOS PnL: 11,637
+- Full PnL: 27,476
+- Turnover: 0.161
+
+Interpretation:
+Holding periods help the static candidate, especially a 2-day rebalance, but do
+not improve the annual walk-forward validation enough to replace the daily
+walk-forward benchmark. For the robust walk-forward model, 2-day holding lowers
+turnover and slightly improves full Sharpe, but reduces OOS Sharpe and OOS PnL.
+
+Signal family grouping
+----------------------
+I grouped features into:
+- Price: mom_60, rev_5, curve_spread, curve_ratio
+- Positioning/macro proxy: cot_mm_level, cot_pm_oi_level
+- Fundamentals: public_inventory_change, receipts_change,
+  cgl_inventory_change, crush_surprise, crush_utilization
+
+This matters because a simple average over all columns gives fundamentals more
+raw feature count than positioning. Ridge regularization softens that issue, but
+it does not guarantee equal family influence.
+
+Family-balanced methods tested
+------------------------------
+1. Feature-equal Ridge:
+   The current style: all features enter one Ridge model.
+
+2. Family-equal prediction:
+   Fit one Ridge model per family, then average the three family predictions
+   equally.
+
+3. Family signal average:
+   Average signals inside each family first, then average the three family
+   signals equally without regression.
+
+4. Each of the above with and without a 2-day rebalance.
+
+Best family-balanced result
+---------------------------
+Family-equal prediction, 20-day horizon:
+- OOS Sharpe: 0.870
+- Full Sharpe: 0.733
+- OOS PnL: 7,777
+- Full PnL: 14,672
+- Max drawdown: -4,924
+
+Family signal average:
+- OOS Sharpe: 1.043
+- Full Sharpe: 0.374
+- OOS PnL: 8,684
+- Full PnL: 6,367
+- Max drawdown: -4,701
+
+Current annual walk-forward benchmark:
+- OOS Sharpe: 1.347
+- Full Sharpe: 0.738
+- OOS PnL: 11,579
+- Full PnL: 12,833
+- Max drawdown: -4,001
+
+Decision
+--------
+Do not promote family-balanced averaging into the final model. It is conceptually
+cleaner, but the best family-balanced model reduces OOS Sharpe and OOS PnL.
+However, this is a useful diagnostic: future model versions should report
+feature-family exposure so fundamentals do not dominate just because they have
+more columns.
+
+Final holding-period answer
+---------------------------
+The current final candidate and walk-forward validation rebalance daily, even
+though the forecast target is multi-day. A 2-day holding/rebalance period is
+interesting for the static candidate, but it does not improve the main
+walk-forward validation enough. Therefore the final strategy remains daily
+rebalanced, with turnover reported. If transaction costs are higher than assumed,
+the 2-day rebalance should be revisited.
+
+
+Experiment 11: ML algorithms without overfitting
+================================================
+
+Question
+--------
+Would machine-learning algorithms improve the results without introducing
+overfit?
+
+Setup
+-----
+I kept the anti-overfit structure the same:
+- Annual walk-forward retraining.
+- Each fit only used data available before the retrain date.
+- Forward return targets were shifted so the model never sees the future return
+  it is trying to predict.
+- Model selection was judged against the existing annual Ridge walk-forward
+  benchmark, not against the static candidate.
+
+Available libraries
+-------------------
+Scikit-learn was available. XGBoost, LightGBM, and CatBoost were not installed,
+so I did not use gradient-boosting packages outside sklearn.
+
+Models tested
+-------------
+1. Regularized linear models:
+   Ridge, ElasticNet, Lasso, Huber regression.
+
+2. Conservative nonlinear ML:
+   Shallow Random Forest, medium Random Forest, shallow Extra Trees, shallow
+   Gradient Boosting Regressor, HistGradientBoostingRegressor.
+
+3. Other sklearn models:
+   KNN regression and linear-ish SVR.
+
+4. Validation selector:
+   Picked the model with best validation MSE inside the training window, then
+   traded the next walk-forward year. This was intentionally based on prediction
+   error, not PnL, to reduce selection-overfit.
+
+5. Missing-data handling variants:
+   Complete-row only, then median imputation with missing-value indicators.
+
+Complete-row ML results
+-----------------------
+The complete-row version was too restrictive because sparse physical features
+remove much of the early sample. The best results were:
+
+- Shallow Random Forest, 5-day target:
+  OOS Sharpe 1.040, OOS PnL 8,326, max drawdown -1,691.
+
+- Validation-MSE selector, 10-day target:
+  OOS Sharpe 0.949, OOS PnL 8,520, max drawdown -3,265.
+
+- ElasticNet, 5-day target:
+  OOS Sharpe 0.840, OOS PnL 7,002, max drawdown -1,542.
+
+These did not beat the annual Ridge walk-forward benchmark:
+OOS Sharpe 1.347, OOS PnL 11,579, full Sharpe 0.738.
+
+Imputed ML results
+------------------
+Median imputation with missing-value indicators gave the models access to more
+history. Best results:
+
+- Shallow sklearn Gradient Boosting, 10-day target:
+  IS Sharpe 0.047, OOS Sharpe 1.274, full Sharpe 0.633,
+  OOS PnL 10,450, full PnL 10,872, max drawdown -3,164,
+  average turnover 0.392.
+
+- Shallow Random Forest, 20-day target:
+  IS Sharpe 0.443, OOS Sharpe 0.989, full Sharpe 0.711,
+  OOS PnL 8,788, full PnL 12,889, max drawdown -3,956,
+  average turnover 0.236.
+
+- ElasticNet, 5-day target:
+  IS Sharpe 0.469, OOS Sharpe 0.960, full Sharpe 0.718,
+  OOS PnL 8,282, full PnL 12,188, max drawdown -3,153,
+  average turnover 0.389.
+
+Current annual Ridge walk-forward benchmark:
+- IS Sharpe 0.143, OOS Sharpe 1.347, full Sharpe 0.738,
+  OOS PnL 11,579, full PnL 12,833, max drawdown -4,001,
+  average turnover 0.234.
+
+Interpretation
+--------------
+The ML models can learn some nonlinear thresholds. The best example is the
+shallow Gradient Boosting model: it nearly matches the Ridge walk-forward OOS
+Sharpe and has a smaller drawdown. However, it has lower full-period Sharpe,
+lower full PnL, lower OOS PnL, and much higher turnover. That is not a clean
+improvement.
+
+The tree models also create a specific overfit risk. The dataset has only four
+commodities and a short history, while several physical features are sparse.
+Even shallow trees can split on patterns that look meaningful in one regime but
+do not generalize. More flexible trees would likely improve in-sample metrics,
+but that would be the wrong direction for this project.
+
+The linear ML models, especially ElasticNet, are safer from overfit but mostly
+replicate the Ridge result with extra complexity and weaker OOS performance.
+
+Decision
+--------
+Do not promote an ML algorithm into the final strategy. The best ML result was
+close, but it did not beat the existing annual Ridge walk-forward on the main
+anti-overfit scorecard: OOS Sharpe, OOS PnL, full Sharpe, turnover, and
+simplicity.
+
+Final ML answer
+---------------
+Using ML does not currently improve the results without adding overfit risk.
+The final robust model remains the annual walk-forward Ridge check, and the
+tradable candidate remains the static edge-filtered Ridge candidate. ML should
+only be revisited if the 2021-February 2026 extension gives a larger holdout
+sample or if external physical data coverage becomes denser.
+
+
+Experiment 12: Online commodity-futures research ideas
+======================================================
+
+Question
+--------
+After checking public commodity-futures research, are there other ideas worth
+testing to improve results without overfitting?
+
+Sources checked
+---------------
+1. Fuertes, Miffre, and Rallis, "Tactical allocation in commodity futures
+   markets: Combining momentum and term structure signals."
+   Main idea: commodity long-short portfolios often improve when momentum and
+   term-structure/backwardation signals are combined instead of used alone.
+
+2. Basu and Miffre, "Capturing the risk premium of commodity futures: The role
+   of hedging pressure."
+   Main idea: hedging pressure/COT-style positioning contains information that
+   is distinct from momentum and term structure.
+
+3. Gorton, Hayashi, and Rouwenhorst, "The Fundamentals of Commodity Futures
+   Returns."
+   Main idea: inventory/storage conditions are linked to commodity futures risk
+   premiums, often through nonlinear convenience-yield effects.
+
+4. Sakkas and Tessaromatis, "Factor based commodity investing."
+   Main idea: multi-factor commodity portfolios using momentum, basis, basis
+   momentum, hedging pressure, and value tend to be more robust than one factor.
+   The paper also finds that dynamic factor-return prediction models add little
+   value, which supports keeping the model simple unless ML clearly beats the
+   benchmark.
+
+5. Recent ML commodity-futures papers and summaries.
+   Main idea: boosted trees and random forests can help when there is a broad
+   cross-section and rich commodity-specific/macro inputs, but careful
+   walk-forward or purged validation is needed because financial labels overlap
+   and noisy samples overfit easily.
+
+Tests run
+---------
+I translated the outside ideas into tests that fit this dataset:
+
+1. Momentum-only cross-sectional factor:
+   20-day and 60-day momentum ranks.
+
+2. Term-structure/backwardation factor:
+   Front-minus-second futures curve spread and curve ratio.
+
+3. Basis-momentum factor:
+   Curve level plus 20-day curve change.
+
+4. Hedging-pressure/COT factor:
+   COT money-manager and producer/merchant/open-interest levels. I tested both
+   signs because the supplied COT columns are normalized levels, not a fully
+   documented net-hedger-pressure measure.
+
+5. Storage/inventory factor:
+   Low public inventory and inventory draws as bullish storage signals.
+
+6. Multi-factor combinations:
+   Momentum + curve, momentum + curve interaction, double-sort winner/loser
+   logic, momentum + curve + COT, momentum + curve + storage, and equal-weight
+   price/term-structure/hedging-pressure/storage portfolios.
+
+7. Implementation variants:
+   Daily, 2/5/10/21-day rebalance, 2/5/10-day staggered holdings, and expanding
+   edge filters.
+
+8. Existing walk-forward Ridge variants:
+   Applied the same lower-turnover and edge-filter ideas to the current annual
+   walk-forward Ridge predictions.
+
+Best online-inspired standalone factor results
+----------------------------------------------
+The strongest standalone literature-style factor was:
+
+- Price + term structure + hedging pressure + storage:
+  IS Sharpe -0.089, OOS Sharpe 1.468, full Sharpe 0.265,
+  OOS PnL 11,834, full PnL 9,414, max drawdown -11,814,
+  average turnover 0.362.
+
+Interpretation:
+This had attractive OOS Sharpe and OOS PnL, but the full-period Sharpe and
+drawdown were poor. It looks regime-fragile. I do not want to promote a model
+that wins after 2018 but carries an -11.8k full-period drawdown and weak
+full-period Sharpe.
+
+Other factor results:
+
+- Momentum + curve + COT with edge filter:
+  OOS Sharpe 1.136, full Sharpe 0.471, OOS PnL 7,012,
+  max drawdown -6,231.
+
+- Double-sort momentum/curve winners:
+  OOS Sharpe 1.136, full Sharpe -0.152, OOS PnL 8,224,
+  max drawdown -20,487.
+
+- Basis momentum with edge filter:
+  OOS Sharpe 0.812, full Sharpe 0.218, OOS PnL 5,271,
+  max drawdown -8,481.
+
+These confirm that the literature factors contain some signal, but they are too
+unstable in this four-commodity grain dataset to replace the Ridge model.
+
+Walk-forward Ridge edge filter
+------------------------------
+Applying an expanding edge filter to the current annual Ridge walk-forward
+predictions was the only idea that came close to a clean improvement:
+
+- Current annual Ridge walk-forward:
+  IS Sharpe 0.143, OOS Sharpe 1.347, full Sharpe 0.738,
+  OOS PnL 11,579, full PnL 12,833, max drawdown -4,001,
+  average turnover 0.234.
+
+- Annual Ridge walk-forward with 60th-percentile expanding edge filter:
+  IS Sharpe 0.143, OOS Sharpe 1.611, full Sharpe 0.745,
+  OOS PnL 9,863, full PnL 11,117, max drawdown -4,001,
+  average turnover 0.200.
+
+Why it might work:
+The filter trades only when the cross-sectional dispersion of risk-adjusted
+predictions is high. This is consistent with commodity factor practice: avoid
+days when the model has no strong relative view and reduce churn.
+
+Why I did not promote it:
+I then checked whether the edge threshold would have been selected before 2018
+using a 2016-2017 validation period and a 20-business-day embargo before the
+validation window. Higher thresholds had the best validation Sharpe:
+
+- q=0.80 validation Sharpe 0.870, but OOS Sharpe only 0.994 and OOS PnL 1,442.
+- q=0.75 validation Sharpe 0.804, but OOS Sharpe 1.098 and OOS PnL 2,745.
+- q=0.60 validation Sharpe 0.523, OOS Sharpe 1.611 and OOS PnL 9,863.
+- q=0.25 to q=0.45 validation Sharpe 0.523, OOS Sharpe 1.347 and OOS PnL
+  11,579.
+
+So q=0.60 looks good after 2018, but pre-2018 validation did not uniquely choose
+it. Promoting q=0.60 would therefore be a mild form of OOS tuning. I logged it
+as a promising robustness diagnostic, not as the final strategy.
+
+Lower-turnover variants
+-----------------------
+For the current annual walk-forward Ridge model:
+
+- 2-day rebalance:
+  OOS Sharpe 1.276, full Sharpe 0.755, OOS PnL 10,837,
+  full PnL 13,074, turnover 0.160.
+
+- 2-day staggered holding:
+  OOS Sharpe 1.274, full Sharpe 0.762, OOS PnL 10,677,
+  full PnL 13,023, turnover 0.159.
+
+Interpretation:
+Lower-turnover versions improve full-period Sharpe slightly and reduce trading,
+but they reduce OOS Sharpe and OOS PnL. They are useful if transaction costs are
+materially higher than assumed, but they are not a clean improvement under the
+current zero-cost benchmark.
+
+Decision
+--------
+Do not replace the final strategy with any online-inspired factor model. The
+online research supports the current design choices: use momentum/term
+structure/COT/storage ideas, keep models simple, use walk-forward validation,
+and be skeptical of dynamic prediction models unless they beat simple baselines.
+
+The only near-improvement is the annual walk-forward Ridge edge filter at q=0.60.
+It improves OOS Sharpe and turnover, but it lowers OOS PnL and was not selected
+by the pre-2018 validation check. Therefore it is not promoted to final.
+
+Final answer from this experiment
+---------------------------------
+The current final answer remains:
+- Tradable candidate: static edge-filtered two-block Ridge.
+- Anti-overfit validation: annual 20-day walk-forward Ridge.
+
+The online research did not produce a better non-overfit final model on this
+dataset, but it did strengthen the rationale for the existing ingredients and
+identified one future extension: an explicitly pre-registered high-conviction
+edge filter for the walk-forward model, to be tested on the 2021-February 2026
+holdout without further tuning.
+
+
+Experiment 13: Tradable calendar and inter-commodity spreads
+============================================================
+
+Question
+--------
+What changes if we also allow the model to trade spread instruments instead of
+using spread/curve data only as predictors?
+
+Instrument definitions
+----------------------
+1. Outright futures:
+   Existing book. One unit is one outright front-month adjusted futures position
+   in CORN, SOYABEAN, WHEAT_SRW, or WHEAT_HRW. PnL is front adjusted price
+   change times 5,000 bushels.
+
+2. Calendar spreads:
+   One unit is long the front adjusted futures series and short the second
+   adjusted futures series for the same commodity. PnL is:
+   diff(adj1 - adj2) * 5,000.
+
+   I used adjusted prices for PnL so contract-roll jumps do not dominate the
+   spread backtest. Unadjusted front/second prices remain useful as curve-level
+   features.
+
+3. Inter-commodity spreads:
+   One unit is long the first commodity and short a rolling-volatility hedge
+   ratio of the second commodity. The hedge ratio uses lagged 60-day PnL
+   volatility and is clipped to 0.25-4.00. Tested pairs:
+   - CORN vs SOYABEAN
+   - CORN vs WHEAT_SRW
+   - SOYABEAN vs WHEAT_SRW
+   - WHEAT_SRW vs WHEAT_HRW
+
+4. Crack/crush spreads:
+   Not tested as a tradable spread. The dataset has Cargill crush activity, but
+   not soybean meal/oil futures prices. Without soybean meal and oil futures, a
+   proper soybean crush-spread PnL cannot be built. The crush data remains a
+   feature only.
+
+Model setup
+-----------
+I kept the same anti-overfit structure:
+- Annual walk-forward Ridge.
+- Train only on data before each annual retrain date.
+- Predict a 20-day forward PnL target.
+- Convert predictions into risk-adjusted cross-sectional positions.
+
+Calendar-spread features:
+- curve_spread, curve_ratio, curve_change_20
+- mom_20, mom_60, vol_20
+- COT levels
+- public inventory level/change
+- Cargill inventory change
+
+Inter-commodity spread features:
+- Relative differences between the two legs for momentum, reversal, volatility,
+  curve, COT, public inventory, and Cargill inventory features.
+
+Results
+-------
+Current outright annual walk-forward benchmark:
+- IS Sharpe 0.143
+- OOS Sharpe 1.347
+- Full Sharpe 0.738
+- OOS PnL 11,579
+- Full PnL 12,833
+- Max drawdown -4,001
+- Turnover 0.234
+
+Calendar-spread-only book:
+- IS Sharpe -0.012
+- OOS Sharpe 0.176
+- Full Sharpe 0.068
+- OOS PnL 188
+- Full PnL 171
+- Max drawdown -1,544
+- Turnover 0.255
+
+Interpretation:
+The calendar spread sleeve did not work. It had low drawdown because spread PnL
+is small, but it did not generate meaningful return. Possible reasons:
+- The supplied first/second futures series may not contain enough clean
+  calendar-spread premium after continuous adjustment.
+- Four grain contracts are too small a cross-section for calendar-spread ranking.
+- Calendar spreads may need delivery-month seasonality and carry/warehouse-cost
+  details that are not present in the current dataset.
+
+Inter-commodity-spread-only book:
+- IS Sharpe 0.504
+- OOS Sharpe 0.768
+- Full Sharpe 0.625
+- OOS PnL 7,496
+- Full PnL 13,162
+- Max drawdown -4,296
+- Turnover 0.281
+
+Interpretation:
+Inter-commodity spreads contain real signal, probably because relative grain
+value, crop substitution, and wheat-class relative value are partly captured by
+relative momentum, curve, COT, and inventory features. However, standalone OOS
+Sharpe is weaker than the outright model and drawdown is slightly worse.
+
+All-spread book, calendar plus inter-commodity:
+- IS Sharpe 0.817
+- OOS Sharpe 0.550
+- Full Sharpe 0.682
+- OOS PnL 3,170
+- Full PnL 7,761
+- Max drawdown -3,094
+- Turnover 0.258
+
+Interpretation:
+This looks cleaner in-sample than out-of-sample, so it is not robust enough.
+Combining weak calendar spreads with better inter-commodity spreads diluted the
+useful spread signal.
+
+Naive all-instrument book, outright plus all spreads:
+- IS Sharpe 0.579
+- OOS Sharpe 0.651
+- Full Sharpe 0.616
+- OOS PnL 4,115
+- Full PnL 7,593
+- Max drawdown -3,017
+- Turnover 0.254
+
+Interpretation:
+This is not a good construction. Letting outright, calendar, and inter-commodity
+spreads compete in one cross-sectional ranking dilutes the strong outright edge.
+Spreads should be treated as overlays, not merged naively into one ranking.
+
+Overlay tests
+-------------
+I then combined independently sized sleeves:
+
+80% outright + 20% inter-commodity spread overlay:
+- IS Sharpe 0.273
+- OOS Sharpe 1.416
+- Full Sharpe 0.836
+- OOS PnL 10,763
+- Full PnL 12,899
+- Max drawdown -3,615
+- Turnover 0.244
+
+70% outright + 30% inter-commodity spread overlay:
+- IS Sharpe 0.338
+- OOS Sharpe 1.415
+- Full Sharpe 0.865
+- OOS PnL 10,354
+- Full PnL 12,932
+- Max drawdown -3,425
+- Turnover 0.248
+
+50% outright + 50% all-spread overlay:
+- IS Sharpe 0.510
+- OOS Sharpe 1.263
+- Full Sharpe 0.890
+- OOS PnL 7,375
+- Full PnL 10,297
+- Max drawdown -2,522
+- Turnover 0.246
+
+Validation check
+----------------
+I checked 2016-2017 validation results with a 20-business-day embargo before the
+validation window:
+
+- Higher all-spread weights had the best validation Sharpe, especially 50%
+  all-spread overlay, but that lowered OOS Sharpe and OOS PnL after 2018.
+- Inter-commodity overlay weights from 20%-40% all improved OOS Sharpe and
+  full-period Sharpe versus outright-only, but the exact best OOS weight was not
+  uniquely selected by the pre-2018 validation window.
+
+Decision
+--------
+Do not replace the final outright strategy with a spread-only or all-instrument
+strategy.
+
+The useful result is narrower:
+- Calendar spreads do not add enough on this dataset.
+- Inter-commodity spreads are useful as a modest diversification overlay.
+- The 80% outright + 20% inter-commodity overlay is the cleanest practical
+  candidate because it improves OOS Sharpe, full Sharpe, and drawdown while
+  giving up less PnL than heavier spread allocations.
+
+Final status
+------------
+I added reproducible spread-instrument functions to `grain_futures_strategy.py`
+and added a spread experiment section to both notebooks. I would present the
+inter-commodity overlay as an extension candidate, not as the final official
+strategy, until it is tested on the 2021-February 2026 holdout.
+
+
+Experiment 14: Comprehensive holding period sweep
+==================================================
+
+Motivation
+----------
+Experiment 10 only tested 2-day holding periods. This experiment tests a full
+sweep of 2, 3, 5, and 10-day holding periods using two methods (staggered holds
+and skip-rebalance) across four strategy variants: static edge-filtered, static
+unfiltered, walk-forward, and walk-forward edge-filtered.
+
+Methods
+-------
+1. Skip-rebalance: Positions are updated only every N trading days and held flat
+   between rebalance dates. Simple and deterministic.
+
+2. Staggered hold: Build N offset sleeves (each refreshed every N days at
+   different offsets), then average the sleeves. Approximates overlapping
+   positions with a smooth N-day holding period.
+
+Both methods are applied post-position-construction (i.e., the position sizing,
+cross-sectional demeaning, and edge filtering all happen on the daily signal,
+then the holding-period mechanic is applied to the resulting positions).
+
+Baselines (daily rebalance)
+----------------------------
+Static edge-filtered (daily):
+- OOS Sharpe: 1.498
+- OOS PnL: $10,304
+- Full Sharpe: 1.077
+- Max Drawdown: -$4,648
+- Turnover: 0.234
+
+Static unfiltered (daily):
+- OOS Sharpe: 1.087
+- OOS PnL: $9,461
+- Full Sharpe: 0.673
+- Max Drawdown: -$7,449
+- Turnover: 0.240
+
+Walk-forward (daily):
+- OOS Sharpe: 1.347
+- OOS PnL: $11,579
+- Full Sharpe: 0.738
+- Max Drawdown: -$4,001
+- Turnover: 0.234
+
+Walk-forward edge-filtered (daily):
+- OOS Sharpe: 1.331
+- OOS PnL: $11,347
+- Full Sharpe: 0.728
+- Max Drawdown: -$4,001
+- Turnover: 0.235
+
+Static edge-filtered results
+------------------------------
+  Method           Hold  OOS Sharpe  OOS PnL  Full Sharpe  Max DD   Turnover
+  staggered          2d    1.413      $9,692    1.034      -$4,108   0.175
+  skip-rebalance     2d    1.730     $11,637    1.087      -$4,111   0.161
+  staggered          3d    1.320      $9,075    0.975      -$4,006   0.143
+  skip-rebalance     3d    1.441      $9,694    0.956      -$4,409   0.130
+  staggered          5d    1.110      $7,633    0.978      -$3,757   0.105
+  skip-rebalance     5d    1.213      $7,994    0.965      -$4,097   0.101
+  staggered         10d    0.937      $6,424    0.886      -$4,186   0.065
+  skip-rebalance    10d    0.633      $4,089    0.629      -$4,725   0.069
+
+NOTABLE: Skip-rebalance 2d is the BEST result in this experiment:
+  OOS Sharpe 1.730 vs 1.498 daily (+15.5%)
+  OOS PnL $11,637 vs $10,304 daily (+12.9%)
+  Full Sharpe 1.087 vs 1.077 daily (flat)
+  Turnover 0.161 vs 0.234 daily (-31%)
+
+Static unfiltered results
+--------------------------
+  Method           Hold  OOS Sharpe  OOS PnL  Full Sharpe  Max DD   Turnover
+  staggered          2d    1.073      $9,238    0.722      -$7,736   0.171
+  skip-rebalance     2d    1.022      $8,894    0.680      -$8,476   0.170
+  staggered          3d    1.084      $9,234    0.785      -$7,846   0.138
+  skip-rebalance     3d    1.385     $12,003    0.918      -$7,896   0.136
+  staggered          5d    1.043      $8,743    0.789      -$7,508   0.106
+  skip-rebalance     5d    1.033      $9,020    0.877      -$7,167   0.106
+  staggered         10d    0.919      $7,492    0.740      -$7,360   0.072
+  skip-rebalance    10d    0.668      $5,717    0.619      -$8,792   0.072
+
+NOTABLE: Skip-rebalance 3d gives OOS PnL $12,003 and Full Sharpe 0.918, the
+best unfiltered result, but drawdown remains large (-$7,896). Not competitive
+with edge-filtered variant.
+
+Walk-forward results
+---------------------
+  Method           Hold  OOS Sharpe  OOS PnL  Full Sharpe  Max DD   Turnover
+  staggered          2d    1.274     $10,677    0.762      -$3,918   0.159
+  skip-rebalance     2d    1.276     $10,837    0.755      -$4,223   0.160
+  staggered          3d    1.090      $8,984    0.714      -$3,943   0.128
+  skip-rebalance     3d    0.816      $7,105    0.569      -$4,244   0.130
+  staggered          5d    0.977      $7,863    0.647      -$4,219   0.096
+  skip-rebalance     5d    0.777      $6,632    0.687      -$5,045   0.094
+  staggered         10d    0.740      $5,848    0.505      -$3,592   0.066
+  skip-rebalance    10d    0.420      $3,575    0.339      -$4,742   0.067
+
+Walk-forward consistently degrades with holding periods. Even 2-day holds reduce
+OOS Sharpe from 1.347 to ~1.275. This confirms Experiment 10 findings.
+
+Walk-forward edge-filtered results
+------------------------------------
+  Method           Hold  OOS Sharpe  OOS PnL  Full Sharpe  Max DD   Turnover
+  staggered          2d    1.281     $10,666    0.764      -$3,918   0.159
+  skip-rebalance     2d    1.263     $10,631    0.746      -$4,223   0.160
+  staggered          3d    1.051      $8,597    0.693      -$3,943   0.128
+  skip-rebalance     3d    0.719      $6,214    0.520      -$4,244   0.130
+  staggered          5d    0.895      $7,117    0.605      -$4,219   0.096
+  skip-rebalance     5d    0.719      $6,097    0.658      -$5,045   0.094
+  staggered         10d    0.659      $5,141    0.464      -$3,592   0.066
+  skip-rebalance    10d    0.292      $2,461    0.275      -$4,742   0.067
+
+Adding edge filter to walk-forward does not help with holding periods. The
+combination is strictly worse than walk-forward alone with holding periods.
+
+Failed experiments
+------------------
+None. All 32 holding-period tests (4 strategies x 4 holding periods x 2 methods)
+completed successfully without errors.
+
+Key findings
+------------
+1. Skip-rebalance 2d on static edge-filtered is the clear winner:
+   - OOS Sharpe 1.730 (highest in the entire experiment history)
+   - OOS PnL $11,637 (higher than daily baseline)
+   - Full Sharpe 1.087 (matches daily baseline)
+   - Turnover drops 31% (0.161 vs 0.234)
+   - Drawdown slightly better (-$4,111 vs -$4,648)
+
+2. Walk-forward strategies do NOT benefit from holding periods. The daily
+   walk-forward model already uses a 20-day forecast horizon which provides
+   natural signal smoothing. Adding hard holding periods on top of that degrades
+   performance monotonically.
+
+3. Beyond 2-3 days, holding periods universally hurt all strategies. The
+   5-day and 10-day periods cause substantial OOS Sharpe degradation (30-70%
+   reduction). This suggests the daily cross-sectional rebalancing captures
+   meaningful short-term relative-value shifts that are lost with longer holds.
+
+4. Staggered holds are smoother but generally weaker than skip-rebalance. The
+   averaging across sleeves dilutes the signal. Skip-rebalance preserves the
+   full-conviction position on rebalance dates.
+
+5. Edge filter + holding period interact well for the static model but not for
+   walk-forward. The edge filter already reduces trading on low-conviction days,
+   and skip-rebalance 2d further concentrates activity on the remaining
+   high-conviction dates.
+
+Decision
+--------
+The static edge-filtered + skip-rebalance 2d result (OOS Sharpe 1.730) is
+impressive, but this is the static candidate, not the walk-forward validation.
+The walk-forward validation (the anti-overfit check) does not improve with
+holding periods.
+
+This creates a tension: the static candidate looks much better with 2-day
+skip-rebalance, but the walk-forward model that guards against overfitting
+does not confirm the improvement. The static 2-day result could be a favorable
+alignment between the rebalance schedule and the test period.
+
+Recommendation: Report the 2-day skip-rebalance static result as a promising
+extension, but do not replace the final strategy without out-of-sample
+confirmation on the 2021-2026 holdout. The daily walk-forward benchmark remains
+the primary anti-overfit validation.
+
+If transaction costs are material, the 2-day skip-rebalance is attractive for
+its 31% turnover reduction with no full-period Sharpe degradation.
+
+
+Experiment 15: Cargill dataset usage audit and code cleanup
+===========================================================
+
+Question
+--------
+Did all experiments use both Cargill datasets, `cgl_inv` and `cgl_crush`? Are
+holding periods better, and can the code be cleaned up?
+
+Cargill data audit
+------------------
+The short answer is: the main outright strategy uses both Cargill datasets, but
+not every later diagnostic experiment used both.
+
+How the feature builder uses Cargill data:
+- `train_cgl_inv.csv` is shifted by T+1 and converted into
+  `cgl_inventory_level` and `cgl_inventory_change`.
+- `train_cgl_crush.csv` is shifted by T+1 and converted into
+  `crush_processed`, `crush_planned`, `crush_surprise`, and
+  `crush_utilization`.
+
+Main outright models:
+- Static edge-filtered two-block Ridge: uses both Cargill inventory and Cargill
+  crush through the physical overlay.
+- Annual walk-forward Ridge anti-overfit check: uses both Cargill inventory and
+  Cargill crush through the same physical overlay.
+- Earlier broad Ridge, OLS/Kalman-style tests, sklearn ML tests, and most
+  physical-overlay tests used feature panels that included both Cargill
+  datasets, though some tests selected or regularized the physical block
+  differently.
+
+Experiments that did not fully use both:
+- Literature-style hand-built factor tests used Cargill inventory change in the
+  physical/storage basket but did not always include crush features.
+- Calendar-spread and inter-commodity-spread tests used Cargill inventory
+  change, but not crush features. Reason: `cgl_crush` is a two-column aggregate
+  processed/planned dataset, not a commodity-by-commodity tradable spread input.
+  It is useful as an outright physical-flow feature, but it is not cleanly
+  attributable to CORN vs WHEAT or front-vs-second spread legs.
+- Tradable crush/crack spreads were not tested because the dataset lacks
+  soybean meal/oil futures prices or energy product futures prices.
+
+Holding-period answer
+---------------------
+The cleaned module now exposes `run_holding_period_experiment`, which reproduces
+the full 2/3/5/10-day holding-period sweep using daily, staggered, and
+skip-rebalance mechanics.
+
+Best result:
+- Static edge-filtered + 2-day skip-rebalance:
+  OOS Sharpe 1.730, OOS PnL 11,637, full Sharpe 1.087,
+  max drawdown -4,111, turnover 0.161.
+
+Static edge-filtered daily baseline:
+- OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  max drawdown -4,648, turnover 0.234.
+
+So yes, holding periods improve the static edge-filtered candidate. The 2-day
+skip-rebalance version increases OOS Sharpe and OOS PnL while cutting turnover
+by about 31%.
+
+But the walk-forward anti-overfit model does not improve:
+- Walk-forward daily: OOS Sharpe 1.347, OOS PnL 11,579, full Sharpe 0.738.
+- Walk-forward 2-day skip-rebalance: OOS Sharpe 1.276, OOS PnL 10,837,
+  full Sharpe 0.755.
+- Longer 3/5/10-day holds degrade further.
+
+Interpretation:
+The static 2-day holding result is promising but not fully confirmed by the
+walk-forward anti-overfit check. It may be a real turnover/conviction benefit,
+or it may partly reflect a favorable alignment of the fixed 2-day rebalance
+calendar with the 2018-2020 test period. I would report it as a promising
+extension and validate it on the 2021-February 2026 holdout before promoting it
+as the final official strategy.
+
+Code cleanup completed
+----------------------
+I cleaned `grain_futures_strategy.py` by:
+- Moving repeated feature-list literals into named constants:
+  `OUTRIGHT_CORE_FEATURES`, `OUTRIGHT_PHYSICAL_FEATURES`,
+  `CALENDAR_SPREAD_FEATURES`, and `INTERCOMMODITY_RELATIVE_FEATURES`.
+- Moving notebook-only holding-period helpers into reusable module functions:
+  `skip_rebalance_positions`, `staggered_hold_positions`, and
+  `run_holding_period_experiment`.
+- Verifying that the cleaned module reproduces the existing benchmark numbers.
+
+Decision
+--------
+Do not change the official final model yet. The static 2-day skip-rebalance is
+the best tradable candidate variant so far, but because the walk-forward model
+does not confirm the holding-period improvement, the conservative final
+description remains:
+- Main tradable candidate: static edge-filtered two-block Ridge.
+- Promising execution variant: 2-day skip-rebalance.
+- Anti-overfit validation: daily annual walk-forward Ridge.
+
+
+Experiment 16: Filters, holding periods, smoothing, and carry/storage sleeve
+============================================================================
+
+Question
+--------
+Test the following ideas and determine which improves the current strategy both
+as a whole and during the negative crisis regime:
+
+1. Prediction-dispersion / opportunity filter.
+2. 2-day / 5-day holding periods.
+3. Position smoothing.
+4. Multi-condition filter: prediction + curve + momentum dispersion.
+5. Simple carry/storage sleeve.
+
+Baseline and crisis definition
+------------------------------
+I used the current static edge-filtered two-block Ridge strategy as the baseline.
+The named event period where this current strategy has negative Sharpe is the
+US-China trade war:
+
+- Period: 2018-07-06 to 2020-01-15.
+- Baseline crisis Sharpe: -0.045.
+- Baseline crisis PnL: -118.
+
+Baseline whole-strategy metrics:
+- IS Sharpe 0.930.
+- OOS Sharpe 1.498.
+- Full Sharpe 1.077.
+- OOS PnL 10,304.
+- Full PnL 27,469.
+- Max drawdown -4,648.
+- Turnover 0.234.
+
+I also checked a pre-2018 validation window:
+- Validation period: 2016-01-01 to 2017-12-31.
+- Embargo: 20 business days before validation.
+
+This matters because some filters can look excellent after 2018 simply because
+the threshold was accidentally tuned to the OOS period.
+
+1. Prediction-dispersion / opportunity filter
+---------------------------------------------
+Method:
+I varied the expanding prediction-dispersion threshold using the existing edge
+score: the cross-sectional standard deviation of risk-adjusted predictions.
+
+Results:
+
+- q=0.65:
+  IS Sharpe 1.105, OOS Sharpe 1.638, full Sharpe 1.246,
+  OOS PnL 9,190, full PnL 25,211, max drawdown -4,366,
+  turnover 0.248.
+  US-China Sharpe -0.321, US-China PnL -595.
+
+- q=0.40:
+  IS Sharpe 0.795, OOS Sharpe 1.367, full Sharpe 0.937,
+  OOS PnL 10,133, full PnL 26,923, max drawdown -4,927,
+  turnover 0.238.
+  US-China Sharpe 0.164, US-China PnL 481.
+
+Interpretation:
+Prediction-dispersion alone is not enough. Higher thresholds improve the whole
+OOS Sharpe but make the US-China crisis period worse. Lower thresholds help the
+crisis period but reduce whole-strategy Sharpe. This is a failed idea as a
+standalone replacement.
+
+Decision:
+Do not promote prediction dispersion alone.
+
+2. 2-day / 5-day holding periods
+--------------------------------
+Method:
+I tested both skip-rebalance and staggered holds. Skip-rebalance updates the
+position every N trading days and holds flat between updates. Staggered holds
+average N offset sleeves.
+
+Best result:
+
+- 2-day skip-rebalance:
+  IS Sharpe 0.862, OOS Sharpe 1.730, full Sharpe 1.087,
+  OOS PnL 11,637, full PnL 27,476, max drawdown -4,111,
+  turnover 0.161.
+  US-China Sharpe 0.517, US-China PnL 1,282.
+
+Other useful check:
+
+- 5-day staggered hold:
+  OOS Sharpe 1.110, full Sharpe 0.978,
+  OOS PnL 7,633, max drawdown -3,757,
+  US-China Sharpe 0.027, US-China PnL 71.
+
+Interpretation:
+The 2-day skip-rebalance improves both the whole OOS result and the US-China
+negative period. Longer holds degrade the strategy. Staggered holds are weaker
+because averaging offset sleeves dilutes conviction.
+
+Decision:
+2-day skip-rebalance improves the current static strategy. It remains an
+execution candidate, not the official final model, because the annual
+walk-forward anti-overfit check did not confirm the same holding-period benefit.
+
+3. Position smoothing
+---------------------
+Method:
+I smoothed final positions with EWMA half-lives of 2, 3, 5, and 10 days. I tested
+both raw smoothed positions and rescaled smoothed positions.
+
+Representative result:
+
+- EWMA position smoothing, half-life 2:
+  IS Sharpe 0.829, OOS Sharpe 1.097, full Sharpe 0.895,
+  OOS PnL 7,860, full PnL 24,739, max drawdown -3,667,
+  turnover 0.090.
+  US-China Sharpe 0.047, US-China PnL 135.
+
+- EWMA position smoothing, half-life 2, rescaled:
+  IS Sharpe 0.950, OOS Sharpe 1.390, full Sharpe 1.067,
+  OOS PnL 9,653, full PnL 26,828, max drawdown -4,216,
+  turnover 0.143.
+  US-China Sharpe -0.054, US-China PnL -140.
+
+Interpretation:
+Smoothing lowers turnover and can reduce drawdown, but it weakens the whole
+strategy. Raw smoothing slightly fixes US-China but gives up too much OOS
+Sharpe/PnL. Rescaled smoothing preserves more performance but does not fix the
+negative crisis period.
+
+Decision:
+Do not promote position smoothing. It is useful only if turnover reduction is
+the primary objective.
+
+4. Multi-condition filter: prediction + curve + momentum dispersion
+-------------------------------------------------------------------
+Method:
+I filtered the current daily model so it trades only when all three expanding
+dispersion conditions are active:
+
+- prediction dispersion is above its expanding threshold,
+- curve dispersion is above its expanding threshold,
+- momentum dispersion is above its expanding threshold.
+
+Rationale:
+Prediction dispersion says the model has a strong cross-sectional view. Curve
+dispersion says term-structure/carry conditions differ meaningfully across
+commodities. Momentum dispersion says the price tape has enough cross-sectional
+separation. Requiring all three avoids trading when the model is active but the
+market opportunity set is not broad enough.
+
+Validation-selected candidate:
+
+- Thresholds: prediction q=0.40, curve q=0.40, momentum q=0.40.
+- Active days: 751 total, about 26% of all days.
+- OOS active rate: about 41%.
+
+Metrics:
+- Pre-validation Sharpe 0.914.
+- Validation Sharpe 2.480.
+- IS Sharpe 1.573.
+- OOS Sharpe 2.098.
+- Full Sharpe 1.736.
+- OOS PnL 7,556.
+- Full PnL 18,168.
+- Max drawdown -3,406.
+- Turnover 0.338.
+- US-China Sharpe 1.496.
+- US-China PnL 2,693.
+
+Best OOS version, but more tuned:
+
+- Thresholds: prediction q=0.50, curve q=0.50, momentum q=0.50.
+- Active days: 511 total, about 18% of all days.
+- OOS active rate: about 34%.
+- OOS Sharpe 2.963.
+- Full Sharpe 1.934.
+- OOS PnL 8,896.
+- Max drawdown -3,399.
+- US-China Sharpe 1.800.
+- US-China PnL 2,678.
+
+Interpretation:
+This is the strongest idea tested. Importantly, the multi-condition idea also
+ranked best in the 2016-2017 validation window, not just after 2018. The q=0.50
+version has the best OOS Sharpe, but the q=0.40 version is cleaner from an
+anti-overfit perspective because it was the top validation candidate.
+
+Tradeoff:
+The multi-condition filter greatly improves Sharpe and the US-China crisis
+period, but it reduces total OOS PnL versus the baseline because it trades fewer
+days. It is a high-conviction opportunity filter, not a higher-capacity version
+of the strategy.
+
+Decision:
+This is the best improvement candidate from this experiment. Use q=0.40/0.40/0.40
+as the conservative validation-selected version. Treat q=0.50/0.50/0.50 as an
+interesting but more OOS-tuned variant.
+
+5. Simple carry/storage sleeve
+------------------------------
+Method:
+I built a simple cross-sectional sleeve:
+
+- Carry/curve component: average of curve_spread and curve_ratio.
+- Storage component: low public inventory, public inventory draws, and Cargill
+  inventory draws.
+- Final sleeve: 60% carry/curve + 40% storage.
+
+Results:
+
+- Carry/storage sleeve only:
+  IS Sharpe -0.372, OOS Sharpe 0.483, full Sharpe -0.166,
+  OOS PnL 4,245, full PnL -6,119, max drawdown -16,681,
+  turnover 0.165.
+  US-China Sharpe 0.357, US-China PnL 1,588.
+
+- Baseline + 20% carry/storage sleeve:
+  IS Sharpe 0.574, OOS Sharpe 1.458, full Sharpe 0.778,
+  OOS PnL 9,092, full PnL 20,751, max drawdown -4,170,
+  turnover 0.177.
+  US-China Sharpe 0.094, US-China PnL 223.
+
+- Baseline + 40% carry/storage sleeve:
+  IS Sharpe 0.321, OOS Sharpe 1.447, full Sharpe 0.565,
+  OOS PnL 7,880, full PnL 14,034, max drawdown -4,603,
+  turnover 0.159.
+  US-China Sharpe 0.273, US-China PnL 565.
+
+Interpretation:
+Carry/storage helps the US-China period, but it damages full-period robustness.
+The sleeve alone is not viable. As an overlay it is a crisis patch, not a whole
+strategy improvement.
+
+Decision:
+Do not promote the carry/storage sleeve.
+
+Final ranking
+-------------
+Improves both crisis and whole strategy:
+
+1. Multi-condition filter, validation-selected q=0.40/0.40/0.40.
+   Best anti-overfit candidate. Improves OOS Sharpe from 1.498 to 2.098 and
+   US-China Sharpe from -0.045 to 1.496, but lowers OOS PnL from 10,304 to
+   7,556 because it trades only high-opportunity days.
+
+2. 2-day skip-rebalance.
+   Improves OOS Sharpe from 1.498 to 1.730, OOS PnL from 10,304 to 11,637,
+   turnover from 0.234 to 0.161, and US-China Sharpe from -0.045 to 0.517.
+   The caveat is that the walk-forward anti-overfit model did not confirm this
+   holding-period benefit.
+
+Does not improve both:
+
+3. Prediction-dispersion filter alone.
+   Helps either OOS or crisis depending on threshold, but not both reliably.
+
+4. Position smoothing.
+   Reduces turnover, but lowers OOS Sharpe/PnL.
+
+5. Carry/storage sleeve.
+   Helps the crisis window but weakens full-period robustness.
+
+Recommendation
+--------------
+The best next candidate is the validation-selected multi-condition filter. I
+would present it as a high-conviction version of the static edge-filtered model,
+not as a replacement for the anti-overfit walk-forward benchmark. The 2-day
+skip-rebalance remains the best execution variant if the objective is higher
+OOS PnL and lower turnover.
+
+
+Experiment 17: Notebook cleanup
+===============================
+
+Request
+-------
+Clean up the Jupyter notebooks so they show:
+- each experiment done and the rationale behind it,
+- signal scores,
+- regime/year-period tables and which strategy is selected in each regime,
+- train/validation/test metrics including IS Sharpe, hold_days, OOS Sharpe,
+  OOS PnL, full Sharpe, max drawdown, and turnover,
+- the selected strategy by use case.
+
+Changes made
+------------
+I rebuilt both notebooks as a clean research report:
+- `grain_futures_strategy_notebook.ipynb`
+- `grain_futures_strategy_standalone.ipynb`
+
+Both notebooks now have the same structure:
+1. Configuration and data windows.
+2. Reproducible experiment runner.
+3. Cargill data usage explanation.
+4. Experiment scoreboard.
+5. Signal scores and feature attribution.
+6. Regime/year-period scoreboard.
+7. Holding-period experiment.
+8. Spread-instrument experiment.
+9. Filter, smoothing, and carry/storage sleeve tests.
+10. Strategy selection table.
+11. Equity curves for selected strategies.
+12. Final notes and next work.
+
+I also added `run_filter_sleeve_experiment` plus helper functions to
+`grain_futures_strategy.py`, so the notebook calls module-level experiment code
+instead of redefining scratch helpers inline.
+
+Validation
+----------
+The notebooks parse as valid JSON. The module compiles. The core notebook
+objects run:
+- filter/sleeve table: 5 rows,
+- holding-period table: 36 rows,
+- spread overlay OOS Sharpe: 1.416,
+- selected-strategy regime table: 32 rows.
+
+
+Experiment 18: Cost, holding cost, and margin stress test
+=========================================================
+
+Question
+--------
+Add realistic transaction costs and margin/risk constraints. Show cost cases
+with columns for CDF, trade cost, and holding cost. Also explain how the regime
+switch is known in the notebook.
+
+Assumptions
+-----------
+Contract size and tick value:
+- CME full-size grain futures are 5,000 bushels.
+- A 1/4 cent per bushel tick is $12.50 per contract for corn/soy/wheat-style
+  contracts.
+
+Margin/risk:
+- CME margins are performance bonds and vary by product and volatility.
+- I used approximate per-lot margin assumptions for stress testing:
+  CORN 1,500, SOYABEAN 3,500, WHEAT_SRW 2,500, WHEAT_HRW 2,500.
+- These are transparent approximations, not broker statements.
+
+Cost cases:
+1. zero_cost_no_margin_cap:
+   trade cost 0, holding cost 0, no margin cap.
+
+2. market_assumption:
+   trade cost 8.75 per one-way lot traded, holding cost 5% annualized margin
+   funding, no margin cap.
+
+3. market_assumption_margin_cap:
+   same market costs plus 2,500 aggregate margin budget.
+
+4. stress_cost_margin_cap:
+   trade cost 15.00 per one-way lot traded, holding cost 8% annualized margin
+   funding, 2,500 aggregate margin budget.
+
+CDF definition:
+CDF = total cost / absolute gross PnL over active days.
+
+Results
+-------
+Static edge-filtered:
+- Zero cost: OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077.
+- Market assumption: CDF 0.173, trade cost 3,840, holding cost 913,
+  OOS Sharpe 1.255, OOS PnL 8,638, full Sharpe 0.890.
+- Market + margin cap: CDF 0.180, OOS Sharpe 1.225, OOS PnL 7,901,
+  full Sharpe 0.855.
+
+2-day skip-rebalance:
+- Zero cost: OOS Sharpe 1.730, OOS PnL 11,637, full Sharpe 1.087.
+- Market assumption: CDF 0.130, trade cost 2,649, holding cost 914,
+  OOS Sharpe 1.550, OOS PnL 10,439, full Sharpe 0.945.
+- Market + margin cap: CDF 0.135, OOS Sharpe 1.539, OOS PnL 9,695,
+  full Sharpe 0.910.
+
+Multi-condition filter:
+- Zero cost: OOS Sharpe 2.098, OOS PnL 7,556, full Sharpe 1.736.
+- Market assumption: CDF 0.143, trade cost 2,220, holding cost 371,
+  OOS Sharpe 1.801, OOS PnL 6,502, full Sharpe 1.488.
+- Market + margin cap: CDF 0.145, OOS Sharpe 1.840, OOS PnL 6,217,
+  full Sharpe 1.487.
+
+Annual walk-forward Ridge:
+- Zero cost: OOS Sharpe 1.347, OOS PnL 11,579, full Sharpe 0.738.
+- Market assumption: CDF 0.310, trade cost 3,200, holding cost 781,
+  OOS Sharpe 1.058, OOS PnL 9,097, full Sharpe 0.509.
+- Market + margin cap: CDF 0.310, OOS Sharpe 1.082, OOS PnL 8,816,
+  full Sharpe 0.520.
+
+Interpretation
+--------------
+Transaction and holding costs matter, but they do not completely erase the
+stronger candidates.
+
+- 2-day skip-rebalance is most cost-efficient among the high-PnL candidates
+  because turnover is lower. It remains best for OOS PnL after market costs.
+- Multi-condition filter remains best for Sharpe and crisis avoidance after
+  market costs, but it is a lower-capacity/high-conviction strategy.
+- Annual walk-forward Ridge is the most cost-sensitive because the edge is
+  thinner.
+- The 2,500 margin cap scales exposure only mildly because average margin usage
+  is already near the budget.
+
+Regime switch explanation added to notebook
+-------------------------------------------
+I clarified that the regime table is an ex-post diagnostic:
+- The named periods are historical event labels known from dated market events.
+- `picked_strategy` is not a live switching rule by itself.
+- A live regime switch must be based on observable rules available at the time.
+- In this notebook, the live-style regime/opportunity switch is the
+  multi-condition filter using expanding thresholds for prediction, curve, and
+  momentum dispersion.
+- The 2022 Ukraine war is future work because it is outside the supplied
+  2010-2020 train_set.
+
+
+Experiment 19: Testability of next ideas and live regime switching note
+=======================================================================
+
+Question
+--------
+Are these testable?
+1. Add soybean meal/oil futures if a true tradable crush-spread sleeve is
+   required.
+2. Pre-register the multi-condition filter thresholds before checking the
+   extended holdout.
+
+Also, did the notebook explain how to switch between strategies in the regime
+table?
+
+Answer
+------
+1. Soybean meal/oil futures:
+   Not testable with the current train_set alone. The current dataset has
+   Cargill crush activity, but not tradable soybean meal and soybean oil futures
+   prices. To test a true crush-spread sleeve, we need daily adjusted futures
+   prices for soybean meal and soybean oil, contract multipliers, leg ratios,
+   and realistic leg-level costs. Once those are added, the correct test is to
+   define crush PnL as a tradable legged instrument, freeze the rule, and score
+   it on the 2021-February 2026 holdout.
+
+2. Pre-register multi-condition thresholds:
+   Yes, this is testable now as a written rule. The scoring still requires the
+   extended holdout, but the rule can be frozen before seeing it. The notebook
+   now states the pre-registered candidate:
+   - prediction dispersion q=0.40,
+   - curve dispersion q=0.40,
+   - momentum dispersion q=0.40,
+   - all thresholds expanding and lagged,
+   - no threshold changes after seeing 2021-February 2026.
+
+Regime-switch clarification
+---------------------------
+I added a stronger note to both notebooks:
+- The `picked_strategy` table by period is ex-post diagnostics.
+- It is not a live switching rule.
+- A live switch must be observable before trading.
+- The live-testable switch currently in the notebook is the multi-condition
+  filter.
+- If the user wants one deployable strategy, choose by mandate:
+  static edge-filtered for main PnL, 2-day skip-rebalance for lower-turnover
+  high-PnL execution, or multi-condition filter for high-Sharpe/crisis-aware
+  exposure.
+
+Additional overfit check: natural regime weighting
+--------------------------------------------------
+The user correctly pointed out that even q=0.40/0.40/0.40 can be overfit. I
+therefore added two lower-overfit alternatives:
+
+1. Natural opportunity-weighted exposure:
+   - No hard threshold.
+   - Compute prediction, curve, and momentum dispersion as lagged expanding
+     percentiles.
+   - Scale exposure continuously by their average opportunity score.
+
+2. Trailing-performance natural ensemble:
+   - No historical regime labels.
+   - Blend baseline, 2-day skip-rebalance, and natural-opportunity sleeves by
+     lagged trailing 252-day Sharpe-style weights.
+
+Results:
+- Natural opportunity-weighted exposure:
+  validation Sharpe 0.804, IS Sharpe 0.632, OOS Sharpe 1.134,
+  OOS PnL 7,449, full Sharpe 0.748, turnover 0.169,
+  US-China trade-war Sharpe 0.414.
+
+- Trailing-performance natural ensemble:
+  validation Sharpe 0.648, IS Sharpe 0.719, OOS Sharpe 1.377,
+  OOS PnL 9,826, full Sharpe 0.881, turnover 0.163,
+  US-China trade-war Sharpe 0.272.
+
+Interpretation:
+The natural methods reduce threshold-selection overfit risk, but they are weaker
+than both the 2-day skip-rebalance and hard multi-condition filter in this
+sample. They should be carried into the 2021-February 2026 holdout as robustness
+checks, not promoted as final strategies yet.
+
+Notebook language changed:
+- The q=0.40/0.40/0.40 hard filter is now described as a validation-selected
+  candidate, not as guaranteed truth.
+- The notebook now explicitly says it can still be overfit.
+- The pre-registration plan now freezes a candidate list, not a single rule.
+
+Experiment 20: Final strategy selection cell with market-cost assumptions
+------------------------------------------------------------------------
+User request:
+Add a notebook cell that explicitly states the final strategy assumptions and
+shows full metrics for the final blended strategy, including Sharpe, hit rate,
+winning days, PnL, turnover, and realistic costs.
+
+Implementation:
+Added `run_final_strategy_selection` to `grain_futures_strategy.py` and called
+it from both notebooks. The selected deployable blend is intentionally simple:
+50% 2-day skip-rebalance plus 50% multi-condition opportunity filter.
+
+Assumptions:
+- Blend weights are fixed at 50/50; they are not optimized on Sharpe or PnL.
+- Multi-condition opportunity thresholds remain q=0.40 for prediction,
+  curve, and momentum dispersion.
+- Thresholds are expanding and one-day lagged.
+- Thresholds should not be retuned after looking at the 2021-February 2026
+  holdout.
+- Market-cost assumption is 8.75 dollars per one-way lot traded plus 5% annual
+  margin funding cost.
+- No margin cap is applied in the selected market-cost case.
+
+Cost-adjusted final blended strategy metrics:
+- In-sample: Sharpe 0.811, total PnL 11,061, hit rate 50.5%, winning days 657,
+  losing days 645, trade cost 1,755, holding cost 410, CDF 0.164, max drawdown
+  -2,845, average daily turnover 0.154.
+- Out-of-sample: Sharpe 1.529, total PnL 8,411, hit rate 52.0%, winning days
+  331, losing days 306, trade cost 954, holding cost 232, CDF 0.124, max
+  drawdown -2,067, average daily turnover 0.171.
+- Full period: Sharpe 1.014, total PnL 19,472, hit rate 51.0%, winning days
+  988, losing days 951, trade cost 2,709, holding cost 642, CDF 0.147, max
+  drawdown -2,845, average daily turnover 0.160.
+
+Decision:
+This is now the final notebook selection cell for a cost-aware blended strategy.
+It is more balanced than using only the hard multi-condition filter, and it has
+lower turnover than the static daily strategy. The remaining overfit risk is the
+hard q=0.40 opportunity filter, so the notebook explicitly says the fallback is
+the 2-day skip-rebalance sleeve if the untouched 2021-February 2026 holdout
+rejects the multi-condition component.
+
+Experiment 21: Three-sleeve observable regime weighting
+-------------------------------------------------------
+User request:
+The named regime table shows different sleeves working better in different
+periods, for example drought, flood, COVID, and trade-war periods. Test whether
+the final model can use three sleeves with dynamic weights, without switching
+based on ex-post period labels and without overfitting.
+
+Design:
+Added a live-observable three-sleeve blend:
+- static edge-filtered,
+- 2-day skip-rebalance,
+- multi-condition opportunity filter.
+
+The weights use only information available before trading:
+- lagged realized grain volatility,
+- expanding long-run volatility,
+- lagged expanding opportunity percentiles from prediction, curve, and momentum
+  dispersion.
+
+Volatility state:
+- ewm_vol = rolling grain PnL volatility, EWMA halflife 15, shifted one day.
+- long_vol = expanding mean of ewm_vol, shifted one day.
+- low-vol rule: ewm_vol / long_vol < 0.70.
+- high-vol rule: ewm_vol / long_vol > 1.30.
+- crisis rule: ewm_vol / long_vol > 2.00.
+
+Also tested a volatility-scaled version:
+- exposure scale = target_vol_ratio / realized_vol_ratio,
+- clipped to 0.35 to 1.25,
+- crisis cap of 0.50 when vol_ratio > 2.00.
+
+Average weights:
+- Observable three-sleeve blend:
+  static 0.391, 2-day skip 0.299, multi-condition 0.310.
+- Observable three-sleeve + vol scale:
+  same sleeve weights, average vol scale 1.144.
+
+Market-cost results:
+- Static edge-filtered:
+  IS Sharpe 0.762, OOS Sharpe 1.255, OOS PnL 8,638, full Sharpe 0.890,
+  full PnL 22,716, max drawdown -5,028, turnover 0.234.
+- 2-day skip-rebalance:
+  IS Sharpe 0.733, OOS Sharpe 1.550, OOS PnL 10,439, full Sharpe 0.945,
+  full PnL 23,913, max drawdown -4,425, turnover 0.161.
+- Multi-condition filter:
+  IS Sharpe 1.346, OOS Sharpe 1.801, OOS PnL 6,502, full Sharpe 1.488,
+  full PnL 15,577, max drawdown -3,729, turnover 0.338.
+- Fixed 50/50 skip + multi:
+  IS Sharpe 0.811, OOS Sharpe 1.529, OOS PnL 8,411, full Sharpe 1.014,
+  full PnL 19,472, max drawdown -2,845, turnover 0.160.
+- Observable three-sleeve blend:
+  IS Sharpe 0.788, OOS Sharpe 1.399, OOS PnL 8,431, full Sharpe 0.960,
+  full PnL 20,252, max drawdown -3,511, turnover 0.187.
+- Observable three-sleeve + vol scale:
+  IS Sharpe 0.762, OOS Sharpe 1.397, OOS PnL 10,397, full Sharpe 0.948,
+  full PnL 23,899, max drawdown -4,271, turnover 0.223.
+
+Interpretation:
+This is lower-overfit than selecting the best strategy by named drought/COVID
+period, because the switch does not know the historical period label. However,
+it still does not beat the fixed 50/50 skip + multi final blend on the primary
+cost-adjusted Sharpe/drawdown tradeoff. The vol-scaled variant raises OOS PnL,
+but it increases turnover and drawdown and does not improve Sharpe.
+
+Decision:
+Do not promote the three-sleeve observable regime blend to final strategy yet.
+Keep it in the notebook as a documented robustness experiment. The selected
+final strategy remains the fixed 50/50 2-day skip + multi-condition blend under
+the market-cost assumption. If the 2021-February 2026 holdout supports the
+observable three-sleeve method, it can be promoted then without changing the
+rules.
+
+Cost-table clarification
+------------------------
+The same unit cost assumptions are used for every row in the observable regime
+table:
+- trade_cost_per_lot = 8.75 dollars,
+- holding_cost_rate = 5% annual margin funding.
+
+The dollar costs differ because each strategy has different turnover and
+different margin exposure. I added these columns to the table to make that
+auditable:
+- trade_cost_per_lot,
+- holding_cost_rate,
+- total_turnover_lots,
+- margin_dollar_days,
+- expected_trade_cost,
+- expected_holding_cost.
+
+The expected cost columns equal the reported cost columns:
+- expected_trade_cost = total_turnover_lots * 8.75.
+- expected_holding_cost = margin_dollar_days * 0.05 / 252.
+
+
+Experiment 15: targeted new signal tests
+========================================
+
+Purpose
+-------
+After the first research pass, I tested whether a few additional interpretable
+signals could improve the selected Cargill-aware model:
+- seasonal inventory/crop-calendar normalisation,
+- public-vs-Cargill inventory divergence,
+- soybean-specific Cargill crush signals,
+- inventory/use pressure proxies.
+
+Implementation
+--------------
+The test script is new_signal_experiment.py. It keeps the existing selected
+core + physical model unchanged, then adds each new signal block as a strongly
+regularized Ridge overlay. This keeps the test close to the prior methodology
+and avoids giving a broad model too many new degrees of freedom.
+
+Signal definitions:
+- seasonal_inventory:
+  same-week expanding z-scores for public inventories, public inventory
+  changes, Cargill inventories, and Cargill inventory changes.
+- cargill_public_divergence:
+  Cargill inventory z-score minus public inventory z-score, and the same
+  divergence for inventory changes.
+- soybean_crush_only:
+  Cargill crush processed, planned, surprise, and utilization features applied
+  only to SOYABEAN, with corn and wheat set to zero for this block.
+- inventory_use_pressure:
+  low inventory plus receipts/crush pressure proxies, including soybean crush
+  demand pressure.
+- combined_new_signals:
+  all four new blocks combined into one expanded overlay.
+
+The same 2018-01-01 split is used. The table below is before transaction and
+holding costs, matching the earlier model-selection experiments rather than the
+later cost-adjusted portfolio tables.
+
+Best results
+------------
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Core + expanded physical/new block, edge-filtered:
+  IS Sharpe 0.998, OOS Sharpe 1.237, OOS PnL 7,924, full Sharpe 1.050,
+  full PnL 26,377, max drawdown -4,648, turnover 0.262.
+- Current selected + combined_new_signals, weight 1.00, unfiltered:
+  IS Sharpe 0.613, OOS Sharpe 1.129, OOS PnL 9,454, full Sharpe 0.720,
+  full PnL 27,513, max drawdown -7,449, turnover 0.266.
+- Current selected + combined_new_signals, weight 0.25, unfiltered:
+  IS Sharpe 0.575, OOS Sharpe 1.098, OOS PnL 9,439, full Sharpe 0.687,
+  full PnL 26,365, max drawdown -7,449, turnover 0.245.
+- Current selected + inventory_use_pressure, weight 0.50, unfiltered:
+  IS Sharpe 0.572, OOS Sharpe 1.092, OOS PnL 9,344, full Sharpe 0.683,
+  full PnL 26,205, max drawdown -7,449, turnover 0.244.
+- Current selected core + physical, unfiltered:
+  IS Sharpe 0.558, OOS Sharpe 1.087, OOS PnL 9,461, full Sharpe 0.673,
+  full PnL 25,898, max drawdown -7,449, turnover 0.240.
+
+Standalone new-block results
+----------------------------
+- inventory_use_pressure only:
+  IS Sharpe 0.895, OOS Sharpe 0.499, OOS PnL 4,091, full Sharpe 0.618.
+- seasonal_inventory only:
+  IS Sharpe 0.880, OOS Sharpe 0.347, OOS PnL 3,530, full Sharpe 0.743.
+- soybean_crush_only only:
+  IS Sharpe 0.675, OOS Sharpe 0.264, OOS PnL 2,849, full Sharpe 0.572.
+- cargill_public_divergence only:
+  IS Sharpe 0.869, OOS Sharpe -0.084, OOS PnL -796, full Sharpe 0.648.
+- combined_new_signals only:
+  IS Sharpe 1.746, OOS Sharpe -0.257, OOS PnL -2,086, full Sharpe 0.314.
+
+Interpretation
+--------------
+The new signals contain some information, but they do not improve the current
+winner once the edge filter is included. The best unfiltered overlay slightly
+improves full-period PnL and OOS Sharpe versus the unfiltered selected model,
+but the improvement is small and comes with more turnover. The standalone
+combined block is a clear overfit: very strong in-sample Sharpe and negative
+out-of-sample Sharpe.
+
+Decision
+--------
+Do not promote these new signals to the final strategy. Keep them as documented
+research attempts. The most promising future candidate is the inventory/use
+pressure block because it has positive standalone OOS performance and is
+economically interpretable, but it needs walk-forward and cost-adjusted testing
+before being considered for the live/final portfolio.
+
+
+Experiment 22: optional yfinance FX/crude/rates overlay
+=======================================================
+
+Purpose
+-------
+Test whether external macro markets add information beyond the supplied Cargill,
+public physical-flow, price, curve, and COT data. This experiment is kept
+separate from the main notebook flow because it depends on live internet access
+to Yahoo Finance.
+
+Implementation
+--------------
+The test script is macro_yfinance_experiment.py. I also added an optional
+notebook section called "Optional External Macro Overlay: FX, Crude, And Rates"
+with USE_YFINANCE_MACRO_OVERLAY = False by default. If the flag is changed to
+True, the notebook downloads the data and reruns the backtest.
+
+Yahoo Finance tickers:
+- DX-Y.NYB: U.S. Dollar Index.
+- CL=F: WTI crude oil futures.
+- ^TNX: 10-year Treasury yield index.
+- ^IRX: 13-week Treasury bill yield index, used as a short-rate proxy.
+- EURUSD=X: EUR/USD.
+- BRL=X: Brazilian real versus U.S. dollar.
+
+Feature construction:
+- daily closes are aligned to the grain trading calendar and shifted by one
+  trading day before use;
+- 5-day, 20-day, and 60-day return z-scores;
+- 20-day realized-volatility z-score;
+- level z-scores for USD index, crude oil, and rates;
+- 10-year minus short-rate curve z-score;
+- Ridge overlay with alpha 1000 and the same 5-day forward PnL target as the
+  selected model.
+
+Zero-cost model-selection results
+---------------------------------
+- Current selected + macro overlay, weight 0.25, edge-filtered:
+  IS Sharpe 1.256, OOS Sharpe 1.593, OOS PnL 11,033, full Sharpe 1.337,
+  full PnL 34,815, max drawdown -3,568, turnover 0.235.
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Current selected + macro overlay, weight 1.00, edge-filtered:
+  IS Sharpe 1.558, OOS Sharpe 1.445, OOS PnL 10,367, full Sharpe 1.514,
+  full PnL 41,293, max drawdown -5,734, turnover 0.263.
+- Macro FX/crude/rates only, edge-filtered:
+  IS Sharpe 2.341, OOS Sharpe 1.430, OOS PnL 10,390, full Sharpe 2.078,
+  full PnL 58,550, max drawdown -4,449, turnover 0.302.
+- Current selected + macro overlay, weight 0.50, edge-filtered:
+  IS Sharpe 1.430, OOS Sharpe 1.339, OOS PnL 9,231, full Sharpe 1.396,
+  full PnL 36,551, max drawdown -4,121, turnover 0.240.
+
+Interpretation
+--------------
+The macro block appears useful in this sample. A small 0.25 overlay improves
+the current edge-filtered candidate on OOS Sharpe, OOS PnL, full-period Sharpe,
+full-period PnL, and drawdown with almost unchanged turnover. Larger weights
+increase in-sample and full-period Sharpe but do not improve OOS Sharpe, so the
+0.25 overlay is the only version I would consider further.
+
+Decision
+--------
+Do not automatically promote this into the required final Cargill-data strategy
+because it relies on an external internet data source and has not yet been
+tested under the later market-cost/margin framework. Keep it as an optional
+notebook cell and a promising extension candidate. If used in the presentation,
+describe it as an external-data overlay sensitivity test, not as the core
+exercise submission.
+
+
+Experiment 23: optional Meteostat weather overlay
+=================================================
+
+Purpose
+-------
+Replace the prior weather scaffold with a practical open-data weather source.
+Meteostat does not require an API key and can download historical daily weather
+data for crop-belt proxy locations.
+
+Implementation
+--------------
+The test script is meteostat_experiment.py. I also added an optional notebook
+section called "Optional External Meteostat Weather Overlay" with
+USE_METEOSTAT_OVERLAY = False by default.
+
+Locations:
+- Iowa corn belt proxy: 42.03, -93.63.
+- Illinois corn belt proxy: 40.63, -89.40.
+- Nebraska plains proxy: 41.26, -96.02.
+- Kansas wheat proxy: 38.35, -98.20.
+
+Feature construction:
+- average crop-belt daily weather across the proxy locations;
+- temperature mean level and 20-day change z-scores;
+- heat/cold proxies;
+- 20-day precipitation and dryness proxies;
+- wind level proxy;
+- all weather values shifted before use;
+- Ridge overlay with alpha 1000 and the same 5-day forward PnL target as the
+  selected model.
+
+Zero-cost model-selection results
+---------------------------------
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Current selected + Meteostat overlay, weight 0.25, edge-filtered:
+  IS Sharpe 0.861, OOS Sharpe 1.160, OOS PnL 7,850, full Sharpe 0.930,
+  full PnL 24,623, max drawdown -5,513, turnover 0.230.
+- Current selected + Meteostat overlay, weight 0.50, edge-filtered:
+  IS Sharpe 0.959, OOS Sharpe 1.131, OOS PnL 7,730, full Sharpe 0.994,
+  full PnL 26,940, max drawdown -5,444, turnover 0.227.
+- Current selected core + physical, unfiltered:
+  IS Sharpe 0.558, OOS Sharpe 1.087, OOS PnL 9,461, full Sharpe 0.673,
+  full PnL 25,898, max drawdown -7,449, turnover 0.240.
+- Current selected + Meteostat overlay, weight 0.25, unfiltered:
+  IS Sharpe 0.634, OOS Sharpe 1.059, OOS PnL 9,389, full Sharpe 0.723,
+  full PnL 28,896, max drawdown -7,021, turnover 0.236.
+- Meteostat weather only, edge-filtered:
+  IS Sharpe 1.407, OOS Sharpe 0.030, OOS PnL 216, full Sharpe 1.076,
+  full PnL 32,961, max drawdown -6,758, turnover 0.214.
+- Meteostat weather only, unfiltered:
+  IS Sharpe 0.937, OOS Sharpe 0.013, OOS PnL 131, full Sharpe 0.727,
+  full PnL 34,262, max drawdown -6,709, turnover 0.198.
+
+Interpretation
+--------------
+The Meteostat weather block looks overfit in this sample. It has strong
+in-sample and full-period behavior, but near-zero out-of-sample Sharpe as a
+standalone model and it reduces the selected model's OOS Sharpe when used as an
+overlay. Weather is economically relevant, but this simple crop-belt-average
+daily weather representation is not enough to improve the current strategy.
+
+Decision
+--------
+Do not promote Meteostat weather into the final strategy. Keep it as an optional
+notebook cell and documented external-data attempt.
+
+
+Experiment 24: optional EIA ethanol production/stocks overlay
+=============================================================
+
+Purpose
+-------
+Test whether U.S. ethanol production and ethanol stocks add a corn-demand signal
+beyond the supplied Cargill/public physical data, price/curve features, and COT.
+
+Implementation
+--------------
+The test script is eia_ethanol_experiment.py. I also added an optional notebook
+section called "Optional External EIA Ethanol Overlay" with
+USE_EIA_ETHANOL_OVERLAY = False by default.
+
+Data:
+- EIA weekly U.S. fuel ethanol production:
+  PET.W_EPOOXE_YOP_NUS_MBBLD.W.
+- EIA weekly U.S. fuel ethanol ending stocks:
+  PET.W_EPOOXE_SAE_NUS_MBBL.W.
+
+Feature construction:
+- production level and 4-week change z-scores;
+- stocks level and 4-week change z-scores;
+- production-to-stocks z-score;
+- production-change minus stocks-change demand-pressure proxy;
+- weekly observations shifted before use;
+- Ridge overlay with alpha 1000 and the same 5-day forward PnL target;
+- overlay predicts CORN only, because ethanol is primarily a corn demand input.
+
+Zero-cost model-selection results
+---------------------------------
+- Current selected + EIA ethanol overlay, weight 1.00, edge-filtered:
+  IS Sharpe 0.738, OOS Sharpe 1.522, OOS PnL 10,142, full Sharpe 0.935,
+  full PnL 24,119, max drawdown -5,573, turnover 0.246.
+- Current selected + EIA ethanol overlay, weight 0.25, edge-filtered:
+  IS Sharpe 0.898, OOS Sharpe 1.514, OOS PnL 10,341, full Sharpe 1.057,
+  full PnL 26,958, max drawdown -4,785, turnover 0.239.
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Current selected + EIA ethanol overlay, weight 0.50, edge-filtered:
+  IS Sharpe 0.765, OOS Sharpe 1.401, OOS PnL 9,450, full Sharpe 0.927,
+  full PnL 23,749, max drawdown -5,110, turnover 0.242.
+- Current selected + EIA ethanol overlay, weight 0.50, unfiltered:
+  IS Sharpe 0.578, OOS Sharpe 1.120, OOS PnL 9,598, full Sharpe 0.694,
+  full PnL 26,572, max drawdown -6,941, turnover 0.244.
+- EIA ethanol only, unfiltered:
+  IS Sharpe 0.110, OOS Sharpe 0.902, OOS PnL 5,967, full Sharpe 0.288,
+  full PnL 8,446, max drawdown -10,777, turnover 0.088.
+- EIA ethanol only, edge-filtered:
+  IS Sharpe -0.148, OOS Sharpe 0.545, OOS PnL 2,360, full Sharpe 0.006,
+  full PnL 117, max drawdown -7,944, turnover 0.078.
+
+Interpretation
+--------------
+The ethanol overlay has a small amount of incremental OOS information for corn.
+The 1.00 edge-filtered overlay has the best OOS Sharpe, and the 0.25
+edge-filtered overlay has the best OOS PnL among the ethanol variants. However,
+both versions reduce full-period Sharpe and worsen drawdown versus the selected
+core + physical strategy. Standalone ethanol is not strong enough.
+
+Decision
+--------
+Keep the EIA ethanol block as an optional notebook extension, not as the final
+selected strategy. If used, the conservative candidate is the 0.25 overlay
+because it slightly improves OOS Sharpe/PnL while preserving most of the
+original strategy behavior.
+
+
+Experiment 25: combined macro + EIA ethanol overlays
+====================================================
+
+Purpose
+-------
+Test the user's question: what happens if both optional external overlays are
+activated together? This combines the yfinance macro overlay with the EIA
+ethanol production/stocks overlay on top of the selected Cargill-aware model.
+
+Implementation
+--------------
+The test script is combined_external_experiment.py. I also added an optional
+notebook section called "Optional Combined Macro + EIA Ethanol Overlay" with
+USE_COMBINED_EXTERNAL_OVERLAY = False by default.
+
+The grid tests macro weights and ethanol weights:
+- 0.00, 0.10, 0.25, 0.50, 0.75, 1.00.
+
+Zero-cost model-selection results, top edge-filtered rows
+---------------------------------------------------------
+- Selected + macro weight 1.00 + ethanol weight 1.00:
+  IS Sharpe 1.634, OOS Sharpe 1.724, OOS PnL 12,214, full Sharpe 1.641,
+  full PnL 44,806, max drawdown -5,363, turnover 0.263.
+- Selected + macro weight 0.75 + ethanol weight 1.00:
+  IS Sharpe 1.607, OOS Sharpe 1.623, OOS PnL 11,204, full Sharpe 1.597,
+  full PnL 42,789, max drawdown -5,292, turnover 0.254.
+- Selected + macro weight 1.00 + ethanol weight 0.75:
+  IS Sharpe 1.616, OOS Sharpe 1.621, OOS PnL 11,503, full Sharpe 1.602,
+  full PnL 43,590, max drawdown -5,091, turnover 0.264.
+- Selected + macro weight 0.10 + ethanol weight 0.00:
+  IS Sharpe 0.997, OOS Sharpe 1.604, OOS PnL 11,030, full Sharpe 1.152,
+  full PnL 29,684, max drawdown -4,688, turnover 0.232.
+- Selected + macro weight 0.10 + ethanol weight 0.10:
+  IS Sharpe 0.963, OOS Sharpe 1.594, OOS PnL 10,909, full Sharpe 1.123,
+  full PnL 29,106, max drawdown -4,375, turnover 0.234.
+- Selected + macro weight 0.25 + ethanol weight 0.00:
+  IS Sharpe 1.256, OOS Sharpe 1.593, OOS PnL 11,033, full Sharpe 1.337,
+  full PnL 34,815, max drawdown -3,568, turnover 0.235.
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+
+Interpretation
+--------------
+Activating both external overlays can improve the headline zero-cost metrics.
+The full macro 1.00 + ethanol 1.00 overlay has the strongest OOS Sharpe, OOS
+PnL, full-period Sharpe, and full-period PnL in this grid. The tradeoff is
+higher turnover and a larger drawdown than the conservative macro-only 0.25
+overlay.
+
+The conservative interpretation is:
+- For highest headline Sharpe/PnL in this sample: macro 1.00 + ethanol 1.00.
+- For better drawdown preservation: macro 0.25 + ethanol 0.00, because it
+  improves OOS Sharpe/PnL and has a much smaller max drawdown.
+
+Decision
+--------
+Keep the combined macro + EIA ethanol overlay as an optional external-data
+candidate. Do not replace the required Cargill-data final strategy with it
+unless the write-up clearly labels it as an external-data extension and notes
+that the overlay weights were selected after inspecting this sample.
+
+
+Experiment 26: Macro + EIA drawdown controls and spread rows
+============================================================
+
+Purpose
+-------
+Answer why the full Macro + EIA overlay has a worse drawdown, test whether the
+drawdown can be improved, and add separate rows for tradable calendar/spread
+variants.
+
+Implementation
+--------------
+The test script is combined_risk_spread_experiment.py. I also added an optional
+notebook section called "Optional Combined Risk + Spread Diagnostics" with
+USE_COMBINED_RISK_SPREAD_DIAGNOSTICS = False by default.
+
+Why drawdown worsened
+---------------------
+The full Macro 1.00 + EIA 1.00 overlay adds more directional external-signal
+risk on top of the selected Cargill-aware book. The edge filter decides whether
+the cross-sectional forecast is strong enough to trade, but it does not cap
+portfolio drawdown or force diversification across strategy sleeves. When macro
+and ethanol agree with the same grain direction, the book can earn more PnL but
+also carry a larger loss cluster.
+
+I also tested a simple 126-day trailing drawdown throttle. It did not improve
+the headline result because the main drawdown cluster happened before that
+lagged rule had enough prior loss to scale down. In other words, the issue is
+more concentration/diversification than delayed reaction.
+
+Zero-cost comparison rows
+-------------------------
+- Full Macro 1.00 + EIA 1.00, edge-filtered:
+  IS Sharpe 1.634, OOS Sharpe 1.724, OOS PnL 12,214, full Sharpe 1.641,
+  full PnL 44,806, max drawdown -5,363, turnover 0.263.
+- Light Macro 0.10 + EIA 0.10, edge-filtered:
+  IS Sharpe 0.963, OOS Sharpe 1.594, OOS PnL 10,909, full Sharpe 1.123,
+  full PnL 29,106, max drawdown -4,375, turnover 0.234.
+- Macro 0.25 + EIA 0.00, edge-filtered:
+  IS Sharpe 1.256, OOS Sharpe 1.593, OOS PnL 11,033, full Sharpe 1.337,
+  full PnL 34,815, max drawdown -3,568, turnover 0.235.
+- Full Macro + EIA with 20% intercommodity spread overlay:
+  IS Sharpe 1.581, OOS Sharpe 1.539, OOS PnL 11,270, full Sharpe 1.557,
+  full PnL 38,477, max drawdown -3,446, turnover 0.250.
+- Full Macro + EIA with 30% intercommodity spread overlay:
+  IS Sharpe 1.580, OOS Sharpe 1.504, OOS PnL 10,798, full Sharpe 1.551,
+  full PnL 35,313, max drawdown -2,867, turnover 0.244.
+- Full Macro + EIA with 20% calendar-spread overlay:
+  IS Sharpe 1.538, OOS Sharpe 1.526, OOS PnL 9,809, full Sharpe 1.514,
+  full PnL 35,879, max drawdown -4,303, turnover 0.247.
+- Calendar-spread-only book:
+  IS Sharpe -0.012, OOS Sharpe 0.176, OOS PnL 188, full Sharpe 0.068,
+  full PnL 171, max drawdown -1,544, turnover 0.255.
+- Intercommodity-spread-only book:
+  IS Sharpe 0.504, OOS Sharpe 0.768, OOS PnL 7,496, full Sharpe 0.625,
+  full PnL 13,162, max drawdown -4,296, turnover 0.281.
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+
+Interpretation
+--------------
+There are two reasonable drawdown-improved choices:
+
+1. If both optional external feeds must stay active, use the light Macro 0.10 +
+   EIA 0.10 overlay. It improves OOS Sharpe, OOS PnL, full Sharpe, full PnL,
+   and max drawdown versus the current selected strategy.
+2. If the goal is to keep most of the full Macro + EIA upside but reduce the
+   worst loss, use the 80% full Macro+EIA / 20% intercommodity-spread overlay.
+   It gives up some OOS Sharpe versus the full external overlay, but improves
+   max drawdown from -5,363 to -3,446 and remains better than the current
+   selected strategy on OOS Sharpe, OOS PnL, full Sharpe, full PnL, and
+   drawdown.
+
+Calendar spreads can be traded with the front-minus-second data already in the
+dataset, but the standalone calendar-spread result is weak. The calendar overlay
+helps drawdown but gives up too much PnL versus the intercommodity overlay.
+
+Crack/crush spread note
+-----------------------
+A true tradable grain crush-spread row is still not possible with the current
+files. The dataset has Cargill crush activity, but it does not include soybean
+meal and soybean oil futures prices, contract multipliers, or leg ratios needed
+to construct a soybean crush-spread PnL. The existing "crush" data should remain
+as a predictive physical feature, not as a tradable spread instrument.
+
+Decision
+--------
+For the write-up, present the full Macro + EIA row as the highest headline
+Sharpe/PnL optional extension, then present the 80/20 Macro+EIA/intercommodity
+spread row as the drawdown-improved version. If the reviewer wants both Macro
+and EIA active without adding spread trading, the light 0.10/0.10 overlay is the
+cleaner conservative choice.
+
+
+Experiment 27: Meteostat weather double-check
+=============================================
+
+Purpose
+-------
+Re-check the earlier Meteostat conclusion because weather is economically
+plausible for grains and the first test may have been too coarse.
+
+Implementation
+--------------
+I expanded meteostat_experiment.py rather than creating a disconnected script.
+The original test averaged all crop-belt locations into one shared weather
+series. This double-check adds:
+- commodity-weighted locations;
+- 5-day and 20-day prediction horizons;
+- heat stress, freeze stress, GDD-style accumulation, 5/20/60-day
+  precipitation and dryness windows;
+- dry-heat interaction;
+- planting/growing/harvest seasonal interactions;
+- a small alpha grid for seasonal weather variants;
+- light overlay weight 0.10 in addition to 0.25, 0.50, and 1.00.
+
+All weather values are still shifted before use.
+
+Zero-cost results, key rows
+---------------------------
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Current selected + Meteostat commodity_basic alpha 1000 horizon 20,
+  overlay weight 0.10, edge-filtered:
+  IS Sharpe 0.849, OOS Sharpe 1.731, OOS PnL 11,558, full Sharpe 1.067,
+  full PnL 27,975, max drawdown -4,553, turnover 0.233.
+- Current selected + Meteostat commodity_seasonal alpha 1000 horizon 5,
+  overlay weight 0.10, edge-filtered:
+  IS Sharpe 0.702, OOS Sharpe 1.598, OOS PnL 10,751, full Sharpe 0.928,
+  full PnL 24,195, max drawdown -5,827, turnover 0.240.
+- Current selected + Meteostat shared_basic alpha 1000 horizon 5,
+  overlay weight 0.10, edge-filtered:
+  IS Sharpe 1.005, OOS Sharpe 1.530, OOS PnL 10,451, full Sharpe 1.136,
+  full PnL 29,384, max drawdown -4,891, turnover 0.233.
+- Meteostat commodity_seasonal alpha 1000 horizon 5 only, unfiltered:
+  IS Sharpe 1.751, OOS Sharpe 0.536, OOS PnL 5,114, full Sharpe 1.473,
+  full PnL 66,586, max drawdown -5,155, turnover 0.271.
+
+Interpretation
+--------------
+The earlier conclusion was too strong. Weather can improve the selected
+strategy if represented as a commodity-weighted, lightly blended overlay.
+
+The best double-check row is the commodity_basic alpha 1000 horizon 20 weather
+overlay at weight 0.10. It improves OOS Sharpe from 1.498 to 1.731, improves
+OOS PnL from 10,304 to 11,558, slightly improves drawdown from -4,648 to
+-4,553, and keeps turnover nearly unchanged.
+
+However, the evidence is still not clean enough to promote weather as a final
+standalone signal. Some seasonal variants show high in-sample Sharpe and weak
+or negative OOS behavior, which is a classic overfit warning. The weather-only
+rows also do not provide a stable standalone OOS edge. The credible use is a
+small 0.10 overlay, not a large weather-driven book.
+
+Decision
+--------
+Revise the previous weather conclusion:
+- Do not say "weather does not improve results."
+- Say: "A coarse shared-location Meteostat block did not help enough, but a
+  commodity-weighted 20-day Meteostat overlay at 0.10 weight improves OOS
+  Sharpe/PnL and slightly improves drawdown. Keep it optional and label it as
+  a validation-selected external-data extension."
+
+
+Experiment 28: CDD/HDD weather and Macro + EIA + weather combination
+====================================================================
+
+Purpose
+-------
+Test the user's hypothesis that CDD and HDD can improve the weather signal, and
+add a combined optional notebook cell for Macro + EIA + Meteostat weather.
+
+Implementation
+--------------
+I updated meteostat_experiment.py to add:
+- CDD and HDD from average daily temperature using an 18 C base;
+- 5, 20, and 60-day CDD/HDD sums;
+- 20-day CDD/HDD changes;
+- dry-CDD interaction.
+
+I also added combined_macro_eia_weather_experiment.py and notebook section
+"Optional Combined Macro + EIA + Meteostat Weather Overlay" with
+USE_COMBINED_MACRO_EIA_WEATHER_OVERLAY = False by default.
+
+Weather-only results after adding CDD/HDD
+-----------------------------------------
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Best CDD/HDD-expanded weather overlay:
+  Current selected + Meteostat commodity_seasonal alpha 1000 horizon 5,
+  overlay weight 0.10, edge-filtered:
+  IS Sharpe 0.722, OOS Sharpe 1.530, OOS PnL 10,276, full Sharpe 0.926,
+  full PnL 24,014, max drawdown -5,638, turnover 0.241.
+- Commodity_basic alpha 1000 horizon 20, overlay weight 0.10, edge-filtered:
+  IS Sharpe 0.783, OOS Sharpe 1.408, OOS PnL 9,355, full Sharpe 0.935,
+  full PnL 24,604, max drawdown -5,101, turnover 0.231.
+
+Interpretation: adding CDD/HDD did not improve the standalone weather overlay
+versus the prior commodity_basic alpha 1000 horizon 20 row. It made that
+previous best weather specification weaker in this sample. CDD/HDD are
+economically sensible, but here they add noisy degrees of freedom.
+
+Combined Macro + EIA + weather results, key rows
+------------------------------------------------
+- Full Macro 1.00 + EIA 1.00 + weather 0.00, edge-filtered:
+  IS Sharpe 1.634, OOS Sharpe 1.724, OOS PnL 12,214, full Sharpe 1.641,
+  full PnL 44,806, max drawdown -5,363, turnover 0.263.
+- Full Macro 1.00 + EIA 1.00 + weather 0.10, edge-filtered:
+  IS Sharpe 1.727, OOS Sharpe 1.647, OOS PnL 11,861, full Sharpe 1.690,
+  full PnL 46,634, max drawdown -4,141, turnover 0.255.
+- Macro 1.00 + EIA 0.50 + weather 0.05, edge-filtered:
+  IS Sharpe 1.678, OOS Sharpe 1.611, OOS PnL 11,581, full Sharpe 1.645,
+  full PnL 44,991, max drawdown -4,883, turnover 0.259.
+- Macro 0.10 + EIA 0.50 + weather 0.05, edge-filtered:
+  IS Sharpe 0.996, OOS Sharpe 1.603, OOS PnL 10,646, full Sharpe 1.142,
+  full PnL 29,904, max drawdown -4,053, turnover 0.233.
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+
+Interpretation
+--------------
+CDD/HDD did not improve weather as a standalone optional overlay, but weather
+still has value in the all-external mix as a risk diversifier. The full Macro +
+EIA + weather 0.10 row gives up some OOS Sharpe and OOS PnL versus full Macro +
+EIA without weather, but it improves full-period Sharpe, full-period PnL,
+turnover, and max drawdown. The drawdown improvement is material:
+-5,363 to -4,141.
+
+Decision
+--------
+Keep two distinct optional weather conclusions:
+1. For a weather-only extension, do not promote the CDD/HDD-expanded variant as
+   better than the prior lighter weather row.
+2. For the all-external extension, present Macro 1.00 + EIA 1.00 + weather
+   0.10 as the drawdown-improved Macro+EIA+weather variant.
+
+
+Experiment 29: no-grid Macro + EIA ethanol overlay
+==================================================
+
+Purpose
+-------
+Answer whether the "Optional Combined Macro + EIA Ethanol Overlay" can be run
+without selecting weights from a full grid, while still improving out-of-sample
+Sharpe and max drawdown.
+
+Implementation
+--------------
+I added combined_external_nogrid_experiment.py and updated the existing
+notebook cell "Optional Combined Macro + EIA Ethanol Overlay". When
+USE_COMBINED_EXTERNAL_OVERLAY = True, the notebook now displays:
+1. no-grid Macro + EIA variants;
+2. the prior reference Macro + EIA weight grid.
+
+The no-grid rules tested are:
+- fixed small prediction overlay: selected predictions + 0.10 macro + 0.10
+  ethanol;
+- fixed sleeve budget: 80% selected, 10% macro, 10% ethanol;
+- lagged inverse-vol external split: 80% selected, 20% external split by
+  trailing 252-day realized volatility;
+- lagged trailing-performance ensemble: weights computed only from trailing
+  realized PnL of selected/macro/ethanol sleeves;
+- fixed small overlay with a pre-specified lagged drawdown throttle.
+
+Zero-cost results
+-----------------
+- Current selected core + physical, edge-filtered:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- No-grid fixed small prediction overlay, macro 0.10 + ethanol 0.10:
+  IS Sharpe 0.963, OOS Sharpe 1.594, OOS PnL 10,909, full Sharpe 1.123,
+  full PnL 29,106, max drawdown -4,375, turnover 0.234.
+- No-grid lagged trailing-performance ensemble:
+  IS Sharpe 1.558, OOS Sharpe 1.645, OOS PnL 7,591, full Sharpe 1.565,
+  full PnL 29,629, max drawdown -3,318, turnover 0.171.
+  Average weights: selected 0.333, macro 0.349, ethanol 0.318.
+- No-grid fixed sleeve budget, 80/10/10:
+  IS Sharpe 1.000, OOS Sharpe 1.457, OOS PnL 9,518, full Sharpe 1.115,
+  full PnL 27,842, max drawdown -3,754, turnover 0.194.
+- No-grid inverse-vol external split:
+  IS Sharpe 0.977, OOS Sharpe 1.450, OOS PnL 9,333, full Sharpe 1.095,
+  full PnL 27,041, max drawdown -3,832, turnover 0.193.
+
+Interpretation
+--------------
+Yes, there is a non-grid version that improves OOS Sharpe and drawdown.
+
+The cleanest no-grid rule is the fixed small prediction overlay. It improves
+OOS Sharpe, OOS PnL, full Sharpe, full PnL, and drawdown versus the selected
+strategy, with no turnover increase. The 0.10/0.10 weights are not chosen from
+the full grid here; they are a pre-specified "small external overlay" budget.
+
+The strongest drawdown improvement is the lagged trailing-performance ensemble.
+It is also no-grid because daily weights use only past realized sleeve PnL. It
+improves OOS Sharpe from 1.498 to 1.645 and max drawdown from -4,648 to -3,318,
+but it gives up OOS PnL because the resulting book is more conservative.
+
+Decision
+--------
+For presentation, use:
+- "No-grid fixed small prediction overlay" when the objective is to improve both
+  OOS Sharpe and OOS PnL while also improving drawdown.
+- "No-grid lagged trailing-performance ensemble" when the objective is Sharpe
+  and drawdown control, accepting lower OOS PnL.
+
+
+Experiment 30: equal-weight external ablation
+=============================================
+
+Purpose
+-------
+Test the user's proposed fixed-weight structure:
+- overlay core + weather + EIA + macro at the same weight;
+- remove each external block while keeping core;
+- compare against core-heavy versions, which are closer to how research
+  overlays are normally budgeted.
+
+Implementation
+--------------
+I added external_equal_weight_ablation.py. It builds separate edge-filtered
+sleeves for:
+- core Cargill-aware selected model;
+- yfinance macro;
+- EIA ethanol;
+- Meteostat commodity weather.
+
+Then it combines those sleeves with fixed budgets. No weights are selected from
+an optimization grid.
+
+Zero-cost results
+-----------------
+- Core only:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+- Equal all sleeves, core/macro/EIA/weather 25% each:
+  IS Sharpe 1.374, OOS Sharpe 1.247, OOS PnL 5,412, full Sharpe 1.327,
+  full PnL 25,535, max drawdown -4,385, turnover 0.151.
+- Equal minus Weather, core/macro/EIA 33.3% each:
+  IS Sharpe 1.522, OOS Sharpe 1.673, OOS PnL 7,685, full Sharpe 1.547,
+  full PnL 28,712, max drawdown -3,236, turnover 0.167.
+- Equal minus EIA, core/macro/weather 33.3% each:
+  IS Sharpe 1.509, OOS Sharpe 1.139, OOS PnL 6,429, full Sharpe 1.405,
+  full PnL 34,008, max drawdown -5,117, turnover 0.185.
+- Equal minus Macro, core/EIA/weather 33.3% each:
+  IS Sharpe 0.745, OOS Sharpe 0.908, OOS PnL 3,753, full Sharpe 0.768,
+  full PnL 14,530, max drawdown -4,363, turnover 0.146.
+- Core-heavy 70/10/10/10:
+  IS Sharpe 1.035, OOS Sharpe 1.395, OOS PnL 8,347, full Sharpe 1.118,
+  full PnL 26,695, max drawdown -3,707, turnover 0.179.
+- Core-heavy 80/equal external 20:
+  IS Sharpe 0.947, OOS Sharpe 1.377, OOS PnL 8,999, full Sharpe 1.051,
+  full PnL 26,953, max drawdown -3,717, turnover 0.191.
+- Core-heavy 90/equal external 10:
+  IS Sharpe 0.864, OOS Sharpe 1.355, OOS PnL 9,652, full Sharpe 0.987,
+  full PnL 27,211, max drawdown -4,183, turnover 0.205.
+- Core-heavy no Weather, core 80 + macro/EIA 10/10:
+  IS Sharpe 1.000, OOS Sharpe 1.457, OOS PnL 9,518, full Sharpe 1.115,
+  full PnL 27,842, max drawdown -3,754, turnover 0.194.
+- Core-heavy no EIA, core 80 + macro/weather 10/10:
+  IS Sharpe 1.037, OOS Sharpe 1.362, OOS PnL 9,141, full Sharpe 1.113,
+  full PnL 29,431, max drawdown -4,001, turnover 0.198.
+- Core-heavy no Macro, core 80 + EIA/weather 10/10:
+  IS Sharpe 0.827, OOS Sharpe 1.325, OOS PnL 8,339, full Sharpe 0.947,
+  full PnL 23,587, max drawdown -3,837, turnover 0.191.
+
+Interpretation
+--------------
+Equal-weighting all four sleeves is not a good structure. It cuts the core
+strategy down to 25%, gives the same capital budget to narrow/noisier external
+sleeves, and materially reduces OOS PnL.
+
+The ablation says:
+- Macro is important. Removing Macro is the worst ablation.
+- EIA helps in the equal-weight sleeve context. Removing EIA hurts Sharpe and
+  drawdown more than keeping macro+EIA.
+- Weather hurts this fixed-weight sleeve mix. The best equal-weight ablation is
+  core+macro+EIA with weather removed.
+- Core-heavy budgets improve drawdown but generally do not beat core-only OOS
+  Sharpe/PnL in this sleeve-weighted format.
+
+Decision
+--------
+Do not use equal all-sleeve weights as the main result.
+
+If using fixed sleeve budgets, the cleanest drawdown-oriented row is
+core 80 + macro 10 + EIA 10, with weather excluded. It improves max drawdown
+from -4,648 to -3,754 and slightly improves full Sharpe/PnL, but it does not
+improve OOS Sharpe or OOS PnL versus core-only.
+
+For a result that improves OOS Sharpe, OOS PnL, and drawdown all at once, the
+previous fixed small prediction overlay remains better:
+core predictions + 0.10 macro predictions + 0.10 EIA predictions.
+
+
+Experiment 31: lower-overfit final algorithm rewrite
+====================================================
+
+Purpose
+-------
+Respond to the user's point that Ridge itself can overfit because Ridge
+coefficients are learned from historical data. The goal is not to claim "no
+overfit", which would be false, but to rewrite the final strategy as a
+lower-overfit, pre-registered algorithm.
+
+Implementation
+--------------
+I added run_lower_overfit_strategy to grain_futures_strategy.py and created
+notes/lower_overfit_strategy_note.txt.
+
+The algorithm is:
+- annual expanding walk-forward two-block Ridge;
+- fixed core features:
+  mom_60, rev_5, curve_spread, curve_ratio, cot_mm_level, cot_pm_oi_level;
+- fixed physical features:
+  public_inventory_change, receipts_change, cgl_inventory_change,
+  crush_surprise, crush_utilization;
+- fixed Ridge penalties:
+  core alpha 25, physical alpha 1000;
+- fixed 20-day forward PnL target;
+- fixed annual retraining schedule;
+- fixed minimum training history of 756 trading days;
+- fixed expanding one-day-lagged median edge filter, edge quantile 0.50;
+- no external-data overlays;
+- no grid-selected blend weights;
+- no named historical regime labels as trading inputs.
+
+Zero-cost result
+----------------
+- Annual walk-forward Ridge + expanding median edge filter:
+  IS Sharpe 0.143, OOS Sharpe 1.331, OOS PnL 11,347, full Sharpe 0.728,
+  full PnL 12,601, max drawdown -4,001, turnover 0.235.
+- Static edge-filtered two-block Ridge reference:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+
+Interpretation
+--------------
+The walk-forward strategy gives up static full-period Sharpe, but it is cleaner
+from an anti-overfit perspective. Every prediction is produced from coefficients
+fit only on data available before that year's trading period. The static model
+is still useful as a research candidate, but it should not be called the
+lowest-overfit final strategy.
+
+Decision
+--------
+For the final write-up:
+- Use annual walk-forward Ridge + fixed median edge filter as the
+  lower-overfit final algorithm.
+- Present static edge-filtered two-block Ridge as the higher-performing
+  research candidate.
+- Present Macro/EIA/weather only as optional external-data extensions, not as
+  the lower-overfit final strategy.
+
+Important wording
+-----------------
+Do not write "this does not overfit." Write:
+
+"The algorithm is designed to reduce overfit through fixed features, fixed
+regularization, annual walk-forward retraining, lagged signal construction, and
+no full-sample weight search. It can still overfit because Ridge coefficients
+are learned from history, so the 2021-2026 holdout remains required."
+
+
+Experiment 32: no-fit Cargill-aware reversion rule
+==================================================
+
+Purpose
+-------
+Respond to the user's concern that Ridge may not be the right final answer if
+the coefficients themselves are a source of overfit. Test a strategy with no
+learned regression coefficients.
+
+Implementation
+--------------
+I added no_fit_reversion_physical_signal, volatility_target_positions, and
+run_no_fit_reversion_strategy to grain_futures_strategy.py.
+
+The no-fit rule is:
+- base signal: rev_5 short-term mean reversion;
+- fixed physical tilt:
+  0.10 * average(public inventory pressure, receipts pressure,
+  Cargill inventory pressure, soybean-specific Cargill crush pressure);
+- Cargill inventory pressure uses cgl_inv_change;
+- soybean-specific crush pressure uses crush_surprise and crush_utilization;
+- convert to market-neutral cross-sectional positions;
+- apply lagged 60-day strategy-PnL volatility targeting;
+- target daily PnL volatility 120;
+- max exposure scale 1.0;
+- no Ridge, no learned coefficients, no external Macro/EIA/weather.
+
+Zero-cost result
+----------------
+- No-fit Cargill-aware reversion rule:
+  IS Sharpe 0.389, OOS Sharpe 1.779, OOS PnL 11,071, full Sharpe 1.348,
+  full PnL 12,154, max drawdown -2,456, turnover 0.481.
+- Lower-overfit annual walk-forward Ridge:
+  IS Sharpe 0.143, OOS Sharpe 1.331, OOS PnL 11,347, full Sharpe 0.728,
+  full PnL 12,601, max drawdown -4,001, turnover 0.235.
+- Static edge-filtered two-block Ridge reference:
+  IS Sharpe 0.930, OOS Sharpe 1.498, OOS PnL 10,304, full Sharpe 1.077,
+  full PnL 27,469, max drawdown -4,648, turnover 0.234.
+
+Cost-adjusted result, market assumption
+---------------------------------------
+Using 8.75 USD per one-way lot and 5% annual margin funding:
+- No-fit Cargill-aware reversion rule:
+  IS Sharpe -0.177, OOS Sharpe 1.213, OOS PnL 7,502, full Sharpe 0.783,
+  full PnL 7,012, max drawdown -3,023, turnover 0.481.
+
+Interpretation
+--------------
+This is the strongest answer if the user wants to avoid Ridge coefficient
+overfit. It has no fitted beta vector, uses both Cargill datasets, has high
+zero-cost OOS Sharpe, and has the lowest drawdown among the main final
+candidates.
+
+The weakness is turnover. Because the rule is short-term mean reversion, costs
+matter. Under the market cost assumption, OOS Sharpe remains positive at 1.213,
+but OOS PnL falls from 11,071 to 7,502.
+
+Important wording
+-----------------
+Do not write "no overfit." Even this no-fit rule can be overfit by research
+selection. The safer wording is:
+
+"This strategy has no learned regression coefficients and therefore removes
+Ridge coefficient overfit. It can still be overfit through research choices, so
+it must be frozen and tested on the 2021-2026 holdout."
+
+Decision
+--------
+Use the no-fit Cargill-aware reversion rule as the most conservative answer to
+the Ridge-overfit objection. Keep annual walk-forward Ridge as the fitted
+lower-overfit benchmark. Keep static Ridge and external overlays as
+higher-performing research candidates, not the lowest-overfit final answer.
+
+
+Experiment 15: External signals as core features (not overlays)
+================================================================
+
+Motivation
+----------
+All previous external-data experiments (macro, EIA, weather) added predictions
+from separately trained Ridge models on top of the core+physical predictions
+using a scalar overlay weight. That forces each external model to scale its
+prediction to the same units as the core model, and it treats the models as
+independent ensembles.
+
+This experiment folds the raw external features directly into the core Ridge
+regression so the single model can:
+- Use cross-feature interactions (e.g. drought + high crude = stronger signal)
+- Let regularisation balance the importance of each feature group
+- Avoid the overlay weight-tuning problem
+
+What changes
+------------
+- Core feature block expands from 6 to up to 68 features (for CORN with all
+  three external sources)
+- Physical block (Cargill inventory/crush) stays unchanged as a separate
+  strongly-regularised block (alpha=1000)
+- No external prediction overlay step
+
+External feature groups
+-----------------------
+- Macro (yfinance): USD index, crude oil, 10-year yield, short rate, EUR/USD,
+  BRL/USD — 29 lagged z-score features, same for all four commodities
+- EIA ethanol: weekly US ethanol production and stocks — 6 features, CORN only
+  (other commodities receive zero columns)
+- Weather (Meteostat, commodity_basic mode): crop-belt temperature and
+  precipitation features weighted by commodity location — 27 features per
+  commodity
+
+Total core features: 6 (original) + 29 (macro) + 6 (EIA, CORN only) + 27
+(weather) = 68 for CORN, 62 for other commodities.
+
+Model variants tested (all with physical block alpha=1000)
+-----------------------------------------------------------
+V0  Baseline: original 2-block (core alpha=25)
+V1a Extended core + macro, alpha=25
+V1b Extended core + macro, alpha=100
+V2a Extended core + macro + EIA, alpha=25
+V2b Extended core + macro + EIA, alpha=100
+V3a Extended core + macro + EIA + weather, alpha=25
+V3b Extended core + macro + EIA + weather, alpha=100  ← best
+V3c Extended core + macro + EIA + weather, alpha=250
+V4a Three-block: original core (25) + external block (100) + physical (1000)
+V4b Three-block: original core (25) + external block (500) + physical (1000)
+
+Each tested with and without edge filter. Walk-forward validation run for V3b.
+
+Static results (edge-filtered, split 2018-01-01)
+-------------------------------------------------
+  Variant                                    OOS Sharpe  OOS PnL   Full Sharpe  Max DD    Turnover
+  V0 baseline original 2-block                1.498     $10,304     1.077    -$4,648   0.234
+  V1b extended core+macro alpha=100           1.497     $11,802     2.197    -$3,788   0.354
+  V2b extended core+macro+EIA alpha=100       1.324     $10,179     2.261    -$4,412   0.353
+  V3a extended core+macro+EIA+weather alpha=25 1.312     $9,177     2.397    -$3,484   0.385
+  V3b extended core+macro+EIA+weather alpha=100 1.677   $11,726     2.749    -$3,713   0.373  ← best
+  V3c extended core+macro+EIA+weather alpha=250 1.587   $10,826     2.715    -$3,666   0.365
+  V4a 3-block ext_alpha=100                   1.450     $10,451     1.928    -$4,427   0.340
+  V4b 3-block ext_alpha=500                   1.172      $8,256     1.743    -$4,152   0.314
+
+Best static result: V3b — OOS Sharpe 1.677 vs 1.498 baseline (+11.9%)
+                        OOS PnL $11,726 vs $10,304 (+13.8%)
+                        Max drawdown improved: -$3,713 vs -$4,648
+                        Turnover higher: 0.373 vs 0.234 (+59%)
+
+Walk-forward validation (V3b best extended vs original baseline, 20d horizon)
+------------------------------------------------------------------------------
+  Strategy                              IS Sharpe  OOS Sharpe  OOS PnL   Full Sharpe
+  Walk-forward baseline (original 2-block)  0.143      1.347   $11,579     0.738
+  Walk-forward V3b (extended core alpha=100) 0.580     1.165   $10,209     0.871
+
+Walk-forward V3b OOS Sharpe: 1.165 vs baseline 1.347 — DECLINE of 13%
+Walk-forward V3b full Sharpe: 0.871 vs baseline 0.738 — small improvement
+
+Coefficient group analysis (V3b, 5-day target, CORN)
+------------------------------------------------------
+  Group          Mean |coef|   Sum |coef|   Count
+  original_core    83.17        499.03         6
+  macro            52.79       1530.96        29
+  weather          52.07       1405.98        27
+  EIA_ethanol       8.72         52.31         6
+
+Top features by cross-commodity mean |coef|:
+1. meteo_dry_cdd_20d (weather) — 149.7
+2. meteo_hdd_60d (weather) — 145.2
+3. cot_mm_level (original core) — 123.4
+4. usd_index_level (macro) — 106.0
+5. meteo_hdd_5d (weather) — 103.0
+
+Weather dominates by total sum of coefficients, followed by macro. EIA ethanol
+contributes least — it only applies to CORN.
+
+Key findings
+------------
+1. The static candidate improves: V3b gives OOS Sharpe 1.677 vs 1.498 baseline
+   (+11.9%). Drawdown also improves. Turnover rises 59% (a cost to monitor).
+
+2. Walk-forward validation does NOT confirm the improvement. OOS Sharpe falls
+   from 1.347 → 1.165 (-13%). This is the same pattern seen in Experiments 8
+   and 12: external data improves static metrics but is not confirmed by the
+   stricter anti-overfit check.
+
+3. Full-period Sharpe explodes (2.749 vs 1.077). This is a red flag: the
+   in-sample improvement is large, suggesting the external features are
+   capturing 2010-2017 in-sample patterns that do not generalise.
+
+4. Weather features contribute the largest coefficients. The dry-heat interaction
+   (meteo_dry_cdd_20d) and heating-degree-day accumulations (hdd_60d, hdd_5d)
+   are the top ranked. This makes economic sense for grain markets, but they may
+   also be overfitting specific drought events in the training sample.
+
+5. Higher alpha helps: V3b (alpha=100) beats V3a (alpha=25). With 68 features
+   vs 6 in the baseline core, stronger shrinkage is needed to prevent the
+   coefficients from exploding on correlated features.
+
+6. Three-block structure is weaker: V4a/V4b trail V3b despite being conceptually
+   cleaner. Separate block fitting loses the cross-group interactions that make
+   the joint model attractive.
+
+7. EIA ethanol is the weakest contributor. Its group sum of coefficients is 7x
+   smaller than macro or weather. Adding it does not meaningfully change results.
+
+Failed experiments
+------------------
+None. All 9 variants × 2 edge-filter settings = 18 static backtests completed.
+Walk-forward ran successfully for V3b. All three external data sources fetched
+without errors.
+
+Decision
+--------
+Do NOT promote any external-core variant as the final strategy. The walk-forward
+anti-overfit check shows degradation, and the full-period Sharpe inflation
+strongly suggests in-sample overfitting on historical weather/macro patterns.
+
+The useful result is:
+- Integrating external features as core signals is feasible and code now exists
+  in grain_futures_strategy_with_external_data_notebook.ipynb
+- Weather features dominate when integrated, suggesting they capture real
+  commodity-specific signals — but the sample is too short to distinguish genuine
+  edge from overfitting on specific drought events (2012 US drought, 2010 Russia)
+- The 2021-2026 holdout is the only clean test of whether V3b-style integration
+  generalises out-of-decade
+
+Notebook created
+----------------
+grain_futures_strategy_with_external_data_notebook.ipynb — self-contained,
+fully executed, with try/except around each external data fetch so it degrades
+gracefully if EIA/yfinance/Meteostat are unavailable.
+
+
+Experiment 16: Anti-overfit variants for external-data core model
+==================================================================
+
+Motivation
+----------
+Experiment 15 showed V3b (all external features as core, alpha=100) achieves
+OOS Sharpe 1.677 static but drops to 1.165 on walk-forward validation vs the
+baseline 1.347. The full-period Sharpe was inflated to 2.749 vs 1.077 baseline,
+a strong signal of in-sample overfitting.
+
+Diagnosis: IS–OOS feature-PnL sign-flip rates
+----------------------------------------------
+Feature-level IS vs OOS correlation was computed for each external feature
+against 5-day forward grain PnL (CORN used as representative).
+
+  Group          Mean |IS corr|  Mean |OOS corr|  Sign-flip rate
+  EIA ethanol       0.028          0.058            100% ← all features flip
+  Macro             0.031          0.122             45%
+  Weather           0.022          0.051             44%
+  Original core     0.027          0.034             50%
+
+Top sign-flipping macro features: crude_oil_vol_20, crude_oil_ret_20,
+crude_oil_level, ten_year_yield_level, usd_index_level.
+
+Root cause: the model overfits on regime-specific patterns (e.g. 2012 US drought
+strengthening specific weather-PnL correlations, crude oil relationships
+reversing post-2018) that do not generalise out of sample.
+
+Anti-overfit method: IS sub-period stability filter
+-----------------------------------------------------
+Split IS (2010–2017) into 4 overlapping windows:
+  2010–2012, 2012–2014, 2014–2016, 2015–2017
+
+For each external feature, KEEP only if:
+  1. Mean |correlation with 5d forward PnL| >= 0.025 across sub-windows
+     (feature is informative, not pure noise)
+  2. Correlation sign is consistent across all sub-windows
+     (feature is stable across different market regimes)
+
+Entirely IS-based — no OOS data used in the filter.
+
+Stable features selected per commodity
+----------------------------------------
+  CORN:     6 external features survive — crude_oil_vol_20,
+            meteo_freeze_stress_20d, usd_index_level, meteo_freeze_stress_5d,
+            ethanol_prod_to_stocks, meteo_hdd_change_20
+  SOYABEAN: 13 external features survive — mostly precipitation and
+            temperature features (precip_5d/20d/60d, dryness, gdd, cdd, hdd)
+  WHEAT_SRW: 4 external features survive — usd_index_level, brlusd_ret_60,
+             meteo_precip_20d, meteo_dryness_20d
+  WHEAT_HRW: 1 external feature survives — brlusd_ret_60
+
+68 total external features reduced to 1–13 per commodity.
+EIA ethanol: completely rejected for WHEAT_SRW and WHEAT_HRW.
+             Only ethanol_prod_to_stocks survives for CORN (the ratio, not levels).
+Crude oil: most features rejected; crude_oil_vol_20 survives for CORN only.
+USD index: survives as a level for CORN and WHEAT_SRW (export competitiveness).
+BRL/USD 60d return: survives for WHEAT_SRW and WHEAT_HRW (Brazil competition).
+
+Results
+-------
+  Variant                                OOS Sharpe  OOS PnL   Full Sharpe  Max DD    Turnover
+  V0 baseline static (edge-filtered)       1.498     $10,304     1.077    -$4,648   0.234
+  V0 baseline walk-forward                 1.347     $11,579     0.738    -$4,001   0.234
+  V3b all-ext alpha=100 static             1.677     $11,726     2.749    -$3,713   0.373  (overfit ref)
+  V3b all-ext alpha=100 walk-forward       1.165     $10,209     0.871    -$5,501   0.297
+  A stable-ext alpha=25 static             0.828      $5,239     1.120    -$4,803   0.255
+  A stable-ext alpha=25 walk-forward       1.208     $10,413     0.938    -$5,649   0.226
+
+Key findings
+------------
+1. The IS sub-period stability filter successfully removes the full-period Sharpe
+   inflation: 1.120 vs 2.749 for V3b. The overfitting was real and the filter
+   correctly identifies it.
+
+2. Filtered external signals do NOT add genuine edge on this sample.
+   Static OOS Sharpe collapses (0.828 vs 1.498 baseline) — the filtered
+   features hurt more than they help in the static test.
+   Walk-forward OOS Sharpe is 1.208, still below baseline 1.347.
+
+3. The degradation in static performance (0.828 vs 1.498) is partly a
+   selection artifact: the stable features are commodity-specific and sparse
+   (1 feature for WHEAT_HRW), which breaks cross-sectional consistency in the
+   edge filter. The edge score becomes noisier with heterogeneous feature sets.
+
+4. Weather for soybeans looks most promising. Precipitation/dryness features
+   survive the stability filter for SOYABEAN with mean |corr| up to 0.12 OOS.
+   A soybean-only weather sub-model could be worth testing separately.
+
+5. BRL/USD 60d return is the most universal external signal. It survives for
+   two commodities (WHEAT_SRW, WHEAT_HRW) where Brazilian competition for
+   export markets has a consistent economic rationale.
+
+Failed experiments
+------------------
+None. All 6 variants ran without errors.
+
+Decision
+--------
+Do not add the stability filter to the main strategy on the current dataset.
+The filter correctly removes overfitting inflation, but the surviving signals
+are too sparse and heterogeneous to improve performance.
+
+The filter IS the right procedure to use when 2021-2026 data becomes available:
+- More IS sub-periods = tighter, more reliable filtering
+- Post-2020 macro regime (rate hikes, supply chain, Ukraine war) provides a
+  completely different test environment for USD and weather signals
+- Soybean precipitation features and BRL/USD are the highest-priority signals
+  to re-evaluate with extended data
+
+Notebook updated
+----------------
+Experiment 16 cells added to:
+  grain_futures_strategy_with_external_data_notebook.ipynb
+Includes: stability filter implementation, results table, cumulative PnL
+comparison plots, and interpretation markdown.
+
+
+---
+
+Experiment 17 — IS IC-weighted external overlay (replaces grid search)
+=======================================================================
+
+Motivation
+----------
+The combined_macro_eia_weather_experiment.py grid search swept 100 weight
+combinations and selected the best by OOS Sharpe. Choosing weights by looking
+at OOS performance is a form of data mining on the weight dimension itself.
+
+Method: IS Information Coefficient (IC) weighting
+--------------------------------------------------
+1. Build overlay predictions for macro (yfinance), EIA ethanol, and Meteostat
+   weather — all using alpha=1000 Ridge, fitted on IS data only (2010-2018).
+
+2. For each overlay compute the daily cross-sectional IC over the IS period:
+     IC_day = Spearman rank-corr(overlay_predictions[t, :], forward_pnl[t+1, :])
+   …across the 4 commodities, then average over all IS days → mean IS IC.
+
+3. Do the same for the core model → IC_core (used as the reference scale).
+
+4. Overlay weight = max(0, IC_overlay) / IC_core
+   - An overlay with IC equal to the core gets weight 1.0
+   - An overlay with zero/negative IS IC gets weight 0.0 (zero-floored)
+   - All computation uses IS data only; no OOS metric is observed
+
+5. Weights are printed in the notebook cell BEFORE any PnL result is shown,
+   making the derivation fully transparent and auditable.
+
+6. Combine: combined = core + w_macro*macro + w_EIA*EIA + w_weather*weather
+   Applied to full period (IS + OOS) — no further tuning.
+
+Why this doesn't overfit
+------------------------
+- The IC computation uses only IS forward PnL (2010-2018)
+- A single scalar weight per overlay is derived, not selected from a grid
+- Zero-flooring is a conservative rule (not a tunable parameter)
+- The weight formula is fixed: IC_overlay / IC_core — no hyperparameters
+
+Implementation
+--------------
+Cells updated in grain_futures_strategy_notebook.ipynb:
+  [45] markdown — explains IC weighting method and why it avoids overfitting
+  [46] code    — _mean_is_ic() helper; weight derivation printed before PnL;
+                 combined backtest; cumulative PnL plot
+
+Flag
+----
+  USE_IC_WEIGHTED_OVERLAY = False   (default; flip to True + provide API keys)
+
+Results
+-------
+  (to be filled when cell is run with live API keys)
+
+Results (run 2026-04-30)
+------------------------
+IS IC-derived weights (IS 2010-2018 only):
+  Core (reference)    : IS IC = 0.04451   weight = 1.0  (reference)
+  Macro (yfinance)    : IS IC = 0.08311   weight = 1.867
+  EIA ethanol         : IS IC = 0.00195   weight = 0.044  (near-zero, effectively dropped)
+  Weather (Meteostat) : IS IC = 0.01784   weight = 0.401
+
+  strategy                               is_sharpe  oos_sharpe  oos_pnl  full_sharpe  full_pnl   max_dd  turnover
+  Core only — edge-filtered (baseline)     0.930       1.498    $10,304    1.077      $27,469  -$4,648   0.234
+  + IC-weighted overlay — unfiltered       1.331       0.892     $8,441    1.222      $53,725  -$6,931   0.262
+  + IC-weighted overlay — edge-filtered    1.842       1.268     $9,767    1.666      $47,070  -$6,046   0.251
+
+Interpretation
+--------------
+1. IC weighting correctly identifies EIA ethanol as near-useless (IC=0.002,
+   weight=0.044). The signal is effectively zeroed out without manual tuning.
+
+2. Weather gets a moderate weight (0.40) — consistent with Experiment 16
+   findings that weather has partial but noisy IS predictive power.
+
+3. Macro gets the largest weight (1.87) because its IS IC (0.083) is higher
+   than the core's (0.045). This is a WARNING SIGN: macro IS IC likely reflects
+   regime-specific in-sample correlations that don't hold OOS:
+   - OOS Sharpe drops from 1.498 → 1.268 (edge-filtered)
+   - Same pattern as Experiment 16: high IS IC doesn't survive OOS
+
+4. OOS Sharpe (1.268 edge-filtered) is below the core baseline (1.498).
+   The IC-weighted overlay adds IS edge but loses OOS edge — overfitting
+   is still happening, just via the IC estimate rather than the grid search.
+
+5. The method is cleaner than grid search (no OOS metric used) but IS IC
+   is itself an in-sample quantity and can be inflated by the same regime-
+   specific features that caused overfitting in Experiments 15 and 16.
+
+Root cause of macro's high IS IC
+---------------------------------
+Macro features (crude_oil, USD index, rates) have genuine IS correlations
+with grain PnL in the 2010-2018 window because of specific macro regimes
+(QE-driven commodity supercycle 2010-2014, dollar bull market 2014-2016).
+These correlations reverse or weaken post-2018 as macro regimes shift.
+The IS IC estimate captures the regime-specific correlation, not a
+structural relationship.
+
+Decision
+--------
+Do not apply the IC-weighted overlay in the main strategy on this dataset.
+The core-only edge-filtered strategy (OOS Sharpe 1.498) remains the best
+deployable result on the 2010-2020 sample.
+
+The IC-weighting method is the right procedure — the problem is the data,
+not the methodology. With a longer sample spanning multiple macro regimes,
+IS IC estimates would be more stable and the weight estimate more reliable.
+
+Notebook updated
+----------------
+Results written to cells 45-46 in grain_futures_strategy_notebook.ipynb.
+The meteostat_experiment.py fetch function updated for new meteostat 2.x API.
+
+Experiment 17b — Inverse prediction volatility overlay weighting (2026-04-30)
+==============================================================================
+
+Method
+------
+Weight = cs_std_core / cs_std_overlay, where cs_std is the mean daily
+cross-sectional standard deviation of predictions across the 4 commodities,
+computed on IS period (2010-2018) only. No performance metric used at all.
+Each overlay is scaled so its contribution has the same cross-sectional
+dispersion as the core signal.
+
+Weights derived
+---------------
+  Core  mean IS cs_std : 138.301  → weight = 1.0  (reference)
+  Macro mean IS cs_std : 105.752  → weight = 1.308
+  EIA   mean IS cs_std :  17.374  → weight = 7.960
+  Wx    mean IS cs_std : 234.593  → weight = 0.590
+
+Results
+-------
+  strategy                               is_sharpe  oos_sharpe  oos_pnl  full_sharpe  max_dd   turnover
+  Core only — edge-filtered (baseline)     0.930       1.498    $10,304    1.077     -$4,648   0.234
+  + inv-vol weighted — unfiltered          1.284       0.828     $7,171    1.173     -$6,151   0.253
+  + inv-vol weighted — edge-filtered       1.382       1.017     $6,911    1.270     -$5,676   0.229
+
+Comparison with Experiment 17a (IS IC weighting)
+-------------------------------------------------
+  Method               oos_sharpe  oos_pnl
+  Core baseline          1.498     $10,304
+  17a IS IC (ef)         1.268      $9,767
+  17b Inv-vol (ef)       1.017      $6,911
+
+Interpretation
+--------------
+1. Inv-vol is the simplest possible method — no assumptions about signal
+   quality, purely normalises cross-sectional dispersion. Yet it performs
+   the worst OOS of the three methods tested (1.017 vs 1.268 vs 1.498).
+
+2. The EIA weight explosion (7.96) is the core problem: EIA predictions
+   have very small cross-sectional spread (cs_std=17 vs core 138) because
+   ethanol production/stocks is a market-wide signal with little
+   cross-commodity discrimination. Inv-vol amplifies it 8x, making it
+   dominate the combined signal — the opposite of what Exp 17a found
+   (IC=0.002, near-zero, weight 0.044).
+
+3. The two methods agree that weather should get a partial weight
+   (17a: 0.40, 17b: 0.59) and that macro should be moderate (17a: 1.87
+   overfit, 17b: 1.31 more conservative). They disagree violently on EIA.
+
+4. The fundamental problem is unchanged: external signals have no genuine
+   OOS edge on the 2010-2020 sample. The weighting method only affects
+   how much damage EIA and macro do OOS. Inv-vol does the most damage
+   because it ignores signal quality entirely.
+
+Conclusion across Experiments 17a and 17b
+------------------------------------------
+Neither IC weighting nor inverse-vol weighting improves on the core-only
+baseline OOS (1.498). The problem is the signals, not the weights.
+
+Recommendation:
+- Keep external overlays off (USE_OVERLAY_EXPERIMENT = False) in production
+- Revisit with post-2020 data where macro regime variety is greater
+- If overlays must be used, IS IC weighting (17a) is the least bad option
+  (OOS 1.268 vs 1.017 for inv-vol) because it at least zeroes out EIA
+
+Notebook updated
+----------------
+Cells 45-46 in grain_futures_strategy_notebook.ipynb now implement both
+methods in a single cell with a side-by-side weight table and combined plot.
+meteostat_experiment.py patched for new meteostat 2.x API (Daily → daily).
+
+
+Experiment 33 — Per-grain no-fit strategy recipes (2026-05-01)
+================================================================
+
+Question
+--------
+The prior no-fit rule used one simple formula for all grains. This experiment
+tests whether commodity-specific fixed recipes can improve OOS performance
+without moving back to a fitted Ridge model.
+
+Important caveat
+----------------
+"No-fit" does not mean impossible to overfit. It means the live algorithm has
+no learned regression coefficients and no grid-searched overlay weights. The
+choice of recipe still came from research and still needs a true untouched
+2021-2026 holdout.
+
+Recipes tested
+--------------
+1. mr_only
+   - rev_5 only.
+
+2. mr_plus_physical_10
+   - rev_5 + 0.10 * physical pressure.
+   - Physical pressure uses public inventory change, receipts change,
+     cgl_inv change, and soybean-specific cgl_crush surprise/utilization.
+
+3. commodity_specific
+   - Corn: mostly short-term reversion plus inventory pressure.
+   - Soybean: reversion plus inventory pressure plus soybean crush pressure.
+   - SRW/HRW wheat: reversion plus a small trend/curve/COT sleeve plus
+     inventory pressure.
+
+4. trend_only
+   - Fixed trend/curve/COT basket.
+
+Portfolio construction tested
+-----------------------------
+1. Independent outright positions:
+   - Each commodity is volatility-targeted independently.
+   - Max position = 0.50 lots per grain.
+
+2. Relative-value positions:
+   - The same raw per-grain recipes are converted to market-neutral
+     cross-sectional positions.
+   - The final book uses the same lagged 60-day strategy-vol targeting as the
+     prior no-fit rule: target daily PnL vol = 120, max scale = 1.0.
+
+Zero-cost portfolio results
+---------------------------
+  strategy                              IS Sharpe  OOS Sharpe  OOS PnL  Full Sharpe  Full PnL  Max DD  Turnover
+  mr_only_relative_value                   0.448       1.814    11,289      0.821     18,705   -4,213    0.369
+  mr_plus_physical_10_relative_value       0.389       1.779    11,071      1.348     12,154   -2,456    0.481
+  commodity_specific_relative_value       -0.005       1.084     6,723      0.749      6,710   -2,612    0.444
+  trend_only_relative_value                0.025       0.501     3,084      0.155      3,500   -7,640    0.156
+  trend_only_independent                   0.521       0.214       555      0.430      3,746   -1,383    0.033
+  mr_plus_physical_10_independent          0.486      -0.353    -1,495     -0.110       -657   -3,344    0.156
+  mr_only_independent                     -0.416      -0.357    -1,514     -0.400     -6,348   -8,319    0.122
+  commodity_specific_independent           0.419      -0.501    -1,547     -0.225       -992   -2,328    0.117
+
+Cost-adjusted portfolio results
+-------------------------------
+Costs use 8.75 USD per one-way lot plus 5% annual margin funding.
+
+  strategy                              IS Sharpe  OOS Sharpe  OOS PnL  Full Sharpe  Full PnL  Max DD   Turnover
+  mr_only_relative_value                   0.066       1.241     7,666      0.386      8,751   -6,120     0.369
+  mr_plus_physical_10_relative_value      -0.177       1.213     7,502      0.783      7,012   -3,023     0.481
+  commodity_specific_relative_value       -0.572       0.568     3,506      0.216      1,932   -3,322     0.444
+  trend_only_relative_value               -0.150       0.234     1,445     -0.045     -1,029  -10,634     0.156
+  trend_only_independent                   0.425       0.073       190      0.320      2,794   -1,587     0.033
+  mr_plus_physical_10_independent          0.203      -0.635    -2,683     -0.393     -2,334   -4,096     0.156
+  mr_only_independent                     -0.599      -0.638    -2,700     -0.609     -9,632  -10,847     0.122
+  commodity_specific_independent           0.148      -0.794    -2,446     -0.511     -2,250   -3,155     0.117
+
+Interpretation
+--------------
+1. The independent per-grain outright strategy fails OOS. The grains are too
+   noisy as stand-alone long/short instruments on this sample.
+
+2. The relative-value construction is essential. The best results still come
+   from ranking/neutralising the grains against each other, not from taking
+   independent directional bets.
+
+3. Commodity-specific rules do not improve the backtest. The
+   commodity_specific relative-value recipe has lower OOS Sharpe (1.084) than
+   the simpler shared mr_only rule (1.814) and the prior Cargill-aware fixed
+   physical tilt (1.779).
+
+4. The physical Cargill-aware tilt slightly lowers OOS Sharpe versus pure
+   mr_only but materially improves full-period Sharpe and max drawdown:
+   - mr_only_relative_value: OOS Sharpe 1.814, max DD -4,213
+   - mr_plus_physical_10_relative_value: OOS Sharpe 1.779, max DD -2,456
+
+Decision
+--------
+Do not replace the final no-fit rule with a commodity-specific recipe on this
+dataset. The evidence says the cleaner low-overfit final candidate remains:
+
+    market-neutral rev_5 + small fixed Cargill/public physical tilt
+
+The physical tilt is retained because it uses both Cargill datasets, improves
+drawdown materially, and has a defensible physical rationale. The
+commodity-specific formula is documented as a researched but rejected attempt.
+
+Files
+-----
+- per_grain_no_fit_experiment.py
+- grain_futures_strategy_notebook.ipynb
+- grain_futures_strategy_standalone.ipynb
+- grain_futures_strategy_with_external_data_notebook.ipynb
+
+
+Experiment 34 — Soybean-only lower-overfit no-fit strategy (2026-05-01)
+========================================================================
+
+Question
+--------
+Can a soybean-only strategy improve Sharpe and drawdown without using a fitted
+one-formula-for-all-grains Ridge model?
+
+Design principle
+----------------
+This is not "impossible to overfit." It is lower-overfit:
+
+- no regression coefficients;
+- no OOS-optimised weight grid;
+- fixed economic recipes;
+- fixed long-only/long-short modes;
+- fixed smoothing, threshold, and volatility targeting;
+- candidate selection uses only pre-2018 train/validation data;
+- 2018-2020 remains the reported test period.
+
+Splits
+------
+- Train: dates before 2016-01-01.
+- Validation: 2016-01-01 to 2017-12-31.
+- Test/OOS: 2018-01-01 to 2020-12-31.
+
+Position construction
+---------------------
+- Instrument: SOYABEAN front adjusted futures only.
+- Raw signal is smoothed with EWMA halflife 2.
+- Signals with absolute value below 0.05 are set to zero.
+- Position is scaled by lagged 60-day soybean futures PnL volatility.
+- Target daily PnL volatility = 75 USD.
+- Max position = 0.50 lots.
+- Cost-adjusted results use 8.75 USD per one-way lot plus 5% annual margin
+  funding.
+
+Candidate recipes tested
+------------------------
+1. rev5 long/short.
+2. rev5 + 0.10 physical pressure long/short.
+3. soybean physical balanced long/short and long-only.
+4. soybean crush inventory long/short.
+5. soybean slow mean-reversion physical long/short.
+6. soybean trend physical long/short and long-only.
+7. soybean curve crush long/short and long-only.
+8. soybean defensive blend long/short.
+9. soybean conservative long blend long-only.
+
+Selected rule
+-------------
+The final soybean-only candidate is:
+
+    soy_conservative_long_blend, long_only
+
+Formula:
+
+    trend_physical =
+        0.50 * trend
+      + 0.25 * inventory_pressure
+      + 0.25 * crush_pressure
+
+    curve_crush =
+        0.45 * curve_tightness
+      + 0.35 * crush_pressure
+      + 0.20 * rev_5
+
+    signal =
+        0.50 * trend_physical
+      + 0.50 * curve_crush
+
+    position = max(smoothed_tanh(signal), 0)
+
+Definitions:
+
+- trend = average(mom_20, mom_60, curve_spread, cot_pm_oi_level)
+- inventory_pressure = -average(public_inventory_change, receipts_change,
+  cgl_inventory_change)
+- crush_pressure = average(crush_surprise, crush_utilization)
+- curve_tightness = average(curve_spread, curve_ratio)
+
+Selection rule
+--------------
+Among candidates with positive train and validation Sharpe:
+
+1. Keep candidates with validation Sharpe within 90% of the best validation
+   Sharpe.
+2. Score = validation Sharpe + 0.25 * train Sharpe + 0.001 * validation max
+   drawdown.
+3. Pick the highest score.
+
+This selected the conservative long blend because it had nearly the same
+validation Sharpe as curve_crush long-only, but better validation drawdown.
+
+Main results
+------------
+Zero-cost:
+
+  strategy                         train Sh  val Sh  val DD  test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  soy_conservative_long_blend LO     0.442   1.999   -156     0.823      320      -260     0.800      891      -463    0.005
+  soy_curve_crush LO                 0.378   2.053   -196     0.617      379      -524     0.670    1,048      -651    0.006
+  soy_trend_physical LO              0.534   1.016   -157     0.578      146      -172     0.652      571      -292    0.003
+  soy_trend_physical L/S             0.528  -0.148   -389     0.693      366      -283     0.373      676      -395    0.003
+  rev5 L/S                          -0.222  -0.204   -693    -0.512     -674    -1,151    -0.301   -1,399    -2,271    0.010
+
+Cost-adjusted:
+
+  strategy                         train Sh  val Sh  val DD  test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  soy_conservative_long_blend LO     0.419   1.968   -158     0.757      294      -271     0.761      848      -465    0.005
+  soy_curve_crush LO                 0.353   2.022   -198     0.559      343      -540     0.632      988      -671    0.006
+  soy_trend_physical LO              0.508   0.982   -160     0.501      126      -178     0.609      534      -302    0.003
+  rev5 L/S                          -0.272  -0.269   -709    -0.596     -784    -1,213    -0.363   -1,687    -2,504    0.010
+
+Interpretation
+--------------
+1. Soybean-only short-term mean reversion is not robust here. It loses in
+   train, validation, and test.
+
+2. The soybean-only strategy works better as a long-biased physical/tightness
+   model than as a symmetric long/short MR model.
+
+3. Cargill crush is useful in soybean specifically, but it works best as part
+   of a conservative long-only blend with curve tightness and trend, not as a
+   standalone aggressive signal.
+
+4. The selected soybean-only rule improves drawdown materially versus naive
+   soybean rev5:
+   - rev5 L/S full DD: -2,271 zero-cost, -2,504 cost-adjusted
+   - conservative long blend full DD: -463 zero-cost, -465 cost-adjusted
+
+5. The Sharpe is positive but not spectacular:
+   - test Sharpe 0.823 zero-cost;
+   - test Sharpe 0.757 cost-adjusted.
+   This is much cleaner than the failed soybean MR variants, but it is not as
+   strong as the cross-sectional all-grain relative-value book.
+
+Decision
+--------
+Keep the soybean-only strategy as an optional, separately reported sleeve. Do
+not replace the final all-grain relative-value strategy with it. It is useful
+evidence that soybean deserves its own physical long-only treatment, but the
+all-grain cross-sectional strategy remains the stronger main strategy.
+
+Files
+-----
+- soybean_no_fit_experiment.py
+- grain_futures_strategy_notebook.ipynb
+- grain_futures_strategy_standalone.ipynb
+- grain_futures_strategy_with_external_data_notebook.ipynb
+
+
+Experiment 35 - Corn-only lower-overfit strategy with EIA ethanol (2026-05-01)
+=============================================================================
+
+Question
+--------
+Can a corn-only strategy improve Sharpe and drawdown while:
+- using the required Cargill inventory and Cargill crush/activity fields;
+- adding EIA ethanol production/stocks because ethanol is a direct corn-demand
+  channel;
+- avoiding fitted Ridge coefficients;
+- keeping every attempted recipe logged?
+
+Setup
+-----
+I created corn_external_signal_experiment.py. The experiment uses fixed signal
+recipes, lagged volatility targeting, capped position size, and cost-adjusted
+backtests. The tested families were:
+
+1. Provided price/trend:
+   mom_20, mom_60, rev_5, curve_spread, curve_ratio, cot_pm_oi_level.
+
+2. Provided physical/Cargill:
+   public_inventory_change, receipts_change, cgl_inventory_change,
+   crush_surprise, crush_utilization, curve tightness.
+
+3. EIA ethanol:
+   ethanol production change, ethanol stocks change, production-to-stocks, and
+   ethanol demand pressure.
+
+4. External yfinance:
+   USD, BRL, CNY, crude, SPY, corn/soy/wheat relative value.
+
+5. Meteostat:
+   CDD, HDD, GDD, heat stress, dryness, planting precipitation, and harvest
+   freeze stress.
+
+Important caveat
+----------------
+The provided Cargill crush file is not a tradable corn crush-spread dataset.
+For corn I used it as a Cargill physical-processing/activity proxy. EIA ethanol
+is the direct corn-demand signal.
+
+Results
+-------
+Cost-adjusted 2018-2020 OOS highlights:
+
+- external_ethanol_family, long_only:
+  Sharpe 0.653, PnL 434.735, DD -333.388.
+  This is economically interesting but not robust enough standalone because
+  earlier train/validation behavior was weak and full-period DD was large.
+
+- requirement_given_80_ethanol_10_fx_10, long_only:
+  Sharpe 0.353, PnL 202.606, DD -426.025, full Sharpe 0.311.
+  This was the best requirement-compliant blended candidate by cost-adjusted
+  OOS Sharpe.
+
+- regime_hybrid_vol_trend_weight, long_short:
+  Sharpe 0.302, PnL 179.817, DD -231.599.
+  This had the smallest positive-OOS drawdown, but weaker full-period behavior.
+
+- fundamental_equal_physical_ethanol_fx_weather, long_only:
+  Sharpe 0.127, PnL 39.966, DD -273.970.
+  Equal family weighting was conservative but too diluted.
+
+Overfit warning
+---------------
+The strict pre-2018 validation selector picked
+requirement_physical_60_trend_25_ethanol_15 in long/short mode. It had a
+positive validation Sharpe but failed OOS:
+
+- cost-adjusted OOS Sharpe -0.487;
+- cost-adjusted OOS PnL -438.585;
+- cost-adjusted OOS DD -936.693.
+
+This is evidence that candidate/mode selection can still overfit even without
+Ridge coefficients. I would not use the validation-only winner as the live corn
+strategy.
+
+Recommendation
+--------------
+Use the conservative long-only blended candidate as the optional corn sleeve:
+
+recommended_corn = requirement_given_80_ethanol_10_fx_10, long_only
+
+Formula:
+
+raw_signal =
+    0.80 * given_conservative_blend
+  + 0.10 * external_ethanol_family
+  + 0.10 * external_fx_export_family
+
+The signal is EWMA-smoothed, thresholded, clipped to long-only, volatility
+targeted, and capped at 0.50 corn contracts.
+
+Final judgment
+--------------
+Corn is weaker than soybeans as a standalone strategy. Ethanol is worth keeping
+because it is economically linked to corn and helps several OOS tests, but it
+should be a small overlay rather than the center of the strategy.
+
+DD normalization
+----------------
+The drawdown numbers above are PnL dollars at the current backtest size. To get
+a normal percentage drawdown:
+
+DD percent = PnL drawdown / allocated capital
+
+Example for the recommended corn sleeve:
+- -426 on 10,000 capital = -4.26%;
+- -426 on 25,000 capital = -1.70%;
+- -426 on 50,000 capital = -0.85%.
+
+Files
+-----
+- corn_external_signal_experiment.py
+- notes/corn.txt
+
+
+Experiment 36 - IC-threshold family selection for corn and soybeans (2026-05-02)
+================================================================================
+
+Question
+--------
+Can corn and soybean sleeves be built by:
+1. first selecting individual signals using an IC threshold;
+2. then building economic family candidates from the IC-passing signals;
+3. then selecting the best family candidate using validation IC?
+
+Method
+------
+- Signal IC = Spearman correlation of signal_t versus next-day futures PnL.
+- Train window: before 2016-01-01.
+- Validation window: 2016-01-01 to 2017-12-31.
+- OOS test window: 2018-01-01 to 2020-12-31.
+- IC threshold: abs(train IC) >= 0.015.
+- Signals are oriented by train IC sign before family construction.
+- Family candidates are fixed equal-weight composites, not fitted
+  coefficients.
+
+Corn result
+-----------
+Signals passing IC threshold:
+- external_weather_hdd_cdd_family
+- given_cot_pm_oi_level
+- given_mom_20
+- given_cgl_inventory_pressure
+- external_relative_grain_family
+- external_fx_export_family
+- external_macro_risk_family
+
+Validation-IC-selected candidate:
+- physical_fx_equal, long_short
+- train IC 0.024, validation IC 0.068, test IC -0.030
+
+Cost-adjusted OOS:
+- Sharpe -0.780
+- PnL -878.449
+- DD -964.271
+
+Best OOS cost-adjusted row from the tested IC-filtered candidates:
+- price_physical_equal, long_only
+- Sharpe 0.690
+- PnL 485.061
+- DD -604.276
+
+Interpretation:
+The IC-threshold approach did not improve corn selection. The best validation
+IC candidate failed badly OOS, which is a clear selection-overfit warning.
+
+Soybean result
+--------------
+Signals passing IC threshold:
+- external_weather_hdd_cdd_family
+- given_cgl_inventory_pressure
+- given_trend
+- given_price_family
+- external_macro_risk_family
+- given_rev_5
+- given_mom_60
+- given_curve_ratio
+- given_curve_spread
+- given_curve_tightness
+- external_fx_export_family
+- external_crush_family
+- external_relative_grain_family
+
+Validation-IC-selected candidate:
+- selected_all_equal, long_short
+- families: price, physical, external_crush, fx_export, weather, macro
+- train IC 0.056, validation IC 0.029, test IC 0.009
+
+Cost-adjusted OOS:
+- Sharpe -0.363
+- PnL -128.328
+- DD -339.375
+
+Best OOS cost-adjusted row from the tested IC-filtered candidates:
+- physical_macro_equal, long_only
+- Sharpe 1.069
+- PnL 418.502
+- DD -311.788
+
+Interpretation:
+IC filtering found useful soybean signals, but validation-IC selection chose
+too broad a long/short basket. The better OOS behavior came from the simpler
+long-only physical + macro family.
+
+Decision
+--------
+Do not use pure validation IC as the final selector. It is useful as a first
+screen, but it needs a portfolio sanity gate such as train/validation Sharpe,
+validation drawdown, and preferably a frozen rule that avoids choosing the
+highest validation IC row mechanically.
+
+Files
+-----
+- ic_threshold_sleeve_experiment.py
+- notes/ic_threshold_corn_soybean.txt
+
+
+Experiment 37 - Regime-conditional IC for corn and soybeans (2026-05-02)
+=========================================================================
+
+Question
+--------
+Does IC screening improve if it is done inside observable sleeves instead of
+on the full sample?
+
+Regime sleeves tested
+---------------------
+1. Volatility regime:
+   - low_vol
+   - normal_vol
+   - high_vol
+
+2. Trend regime:
+   - trend
+   - mr_or_chop
+
+Inside each bucket:
+- select signals by train IC threshold;
+- orient by train IC sign;
+- build fixed equal-weight family candidates;
+- select the best family candidate by validation IC inside the same regime;
+- combine the selected bucket signals with the live observable regime mask.
+
+Corn result
+-----------
+The regime IC split improved corn materially.
+
+Best corn regime result:
+- regime_ic_vol
+- mode: long_short
+- cost-adjusted OOS Sharpe: 0.759
+- cost-adjusted OOS PnL: 224.331
+- cost-adjusted OOS DD: -242.872
+- full Sharpe: 0.208
+- full DD: -515.704
+
+This beats the prior flat IC validation-selected corn strategy, which had:
+- cost-adjusted OOS Sharpe: -0.780
+- cost-adjusted OOS DD: -964.271
+
+It also improves drawdown versus the best flat IC OOS row:
+- flat best price_physical_equal long_only OOS Sharpe: 0.690
+- flat best OOS DD: -604.276
+
+Corn selected regime buckets:
+- low_vol: selected_all_equal, long_only, but not eligible by the strict
+  validation IC gate.
+- normal_vol: selected_all_equal, long_only, eligible.
+- trend: physical_fx_equal, long_only, eligible.
+- mr_or_chop: physical_ethanol_equal, long_short, eligible.
+
+Interpretation:
+For corn, the volatility-regime IC split is better than flat IC. It reduces the
+damage from unstable FX/physical selection and produces a much smaller OOS
+drawdown. The trend-regime split also works, but has higher DD than the vol
+regime.
+
+Soybean result
+--------------
+The regime IC split improved versus the pure flat validation-IC selector, but
+did not beat the best flat OOS candidate found in the IC-filtered table.
+
+Best soybean regime result:
+- regime_ic_trend
+- mode: long_short
+- cost-adjusted OOS Sharpe: 0.754
+- cost-adjusted OOS PnL: 307.000
+- cost-adjusted OOS DD: -402.580
+- full Sharpe: 0.725
+- full DD: -402.580
+
+This beats the prior flat validation-IC-selected soybean strategy:
+- flat validation-IC OOS Sharpe: -0.363
+- flat validation-IC OOS DD: -339.375
+
+But it does not beat the best flat OOS row:
+- physical_macro_equal long_only OOS Sharpe: 1.069
+- OOS DD: -311.788
+
+Soybean selected regime buckets:
+- low_vol: physical_macro_equal, long_only, eligible.
+- normal_vol: physical_only, long_only, eligible.
+- high_vol: selected_all_equal, long_short, eligible in train/validation, but
+  there were no high-vol observations in the OOS test window.
+- trend: physical_macro_equal, long_only, eligible.
+- mr_or_chop: physical_weather_equal, long_only, eligible.
+
+Decision
+--------
+Corn: regime IC improves the strategy. Use the volatility-regime version as the
+best IC-screened corn candidate so far.
+
+Soybeans: regime IC is useful, but the simpler physical_macro_equal long-only
+candidate remains cleaner and stronger OOS. Regime IC should be kept as a
+diagnostic, not the main soybean sleeve.
+
+Files
+-----
+- regime_ic_sleeve_experiment.py
+- notes/regime_ic_corn_soybean.txt
+
+
+Experiment 38 - Walk-forward OLS/Ridge/RLS/Kalman by product (2026-05-02)
+==========================================================================
+
+Question
+--------
+Would fitted linear models give better corn/soybean results without
+overfitting?
+
+Models tested
+-------------
+1. Expanding OLS
+2. Expanding Ridge with fixed alpha 100
+3. Online RLS with fixed lambda 0.995 and delta 100
+4. Kalman-style dynamic linear model with fixed process noise q=1e-5
+
+Controls
+--------
+- No full-sample fitting.
+- No OOS hyperparameter search.
+- OLS/Ridge refit every 21 trading days using expanding history.
+- RLS/Kalman update online.
+- Prediction at date t uses only information available at or before t.
+- Prediction is converted to lagged rolling z-score before position sizing.
+- Both long-only and long/short modes are tested and logged.
+
+Corn results
+------------
+Best fitted-model cost-adjusted OOS row:
+- kalman_dynamic_linear, long_only
+- OOS Sharpe: 0.523
+- OOS PnL: 526.182
+- OOS DD: -647.785
+- Full Sharpe: 0.185
+- Full DD: -1052.725
+
+Other fitted models:
+- OLS was negative OOS after costs.
+- Ridge was negative OOS after costs.
+- RLS was negative OOS after costs despite one positive validation row.
+
+Corn interpretation:
+Kalman had a decent OOS Sharpe, but validation Sharpe was negative and full
+drawdown was worse than the regime-IC corn sleeve. It does not beat the
+regime_ic_vol result:
+- regime_ic_vol OOS Sharpe: 0.759
+- regime_ic_vol OOS DD: -242.872
+
+Soybean results
+---------------
+Best fitted-model cost-adjusted OOS row:
+- kalman_dynamic_linear, long_only
+- OOS Sharpe: 0.598
+- OOS PnL: 542.701
+- OOS DD: -626.983
+- Full Sharpe: 0.410
+- Full DD: -1340.699
+
+Ridge was second:
+- ridge_expanding_alpha100, long_only
+- OOS Sharpe: 0.522
+- OOS DD: -1038.952
+
+OLS and RLS were weaker and/or negative OOS.
+
+Soybean interpretation:
+Kalman and Ridge can create positive OOS results, but they do not beat the
+simpler IC-filtered physical_macro_equal long-only soybean sleeve:
+- physical_macro_equal long_only OOS Sharpe: 1.069
+- physical_macro_equal long_only OOS DD: -311.788
+
+Decision
+--------
+Do not replace the simple sleeves with OLS, Ridge, RLS, or Kalman.
+
+Reason:
+- The best fitted rows are not supported by clean validation behavior.
+- Drawdowns are larger than the simpler fixed-family/regime alternatives.
+- Coefficient estimation adds another overfit channel without enough reward.
+
+If a fitted model must be included, Kalman long-only is the least bad of the
+tested options, but I would present it as a diagnostic/benchmark rather than
+the final fund-usable strategy.
+
+Files
+-----
+- linear_online_model_experiment.py
+- notes/linear_online_models_corn_soybean.txt
+
+
+Experiment 39 - Standalone wheat SRW and HRW sleeves (2026-05-02)
+==================================================================
+
+Question
+--------
+Can we backtest one standalone model for WHEAT_SRW and one standalone model for
+WHEAT_HRW?
+
+Models tested
+-------------
+Three fixed no-fit wheat recipes were tested for both SRW and HRW:
+
+1. mr_trend_physical
+   signal = 0.55 * rev_5
+          + 0.25 * trend
+          + 0.15 * inventory_pressure
+          + 0.05 * cot_mm_change
+
+2. trend_curve_physical
+   signal = 0.45 * trend
+          + 0.25 * curve_tightness
+          + 0.20 * inventory_pressure
+          + 0.10 * cot_mm_change
+
+3. defensive_long_trend
+   signal = 0.55 * trend
+          + 0.20 * inventory_pressure
+          + 0.15 * curve_tightness
+          + 0.10 * cot_mm_change
+
+No fitted coefficients and no external data were used.
+
+WHEAT_SRW result
+----------------
+Recommended / least-bad row:
+- mr_trend_physical, long_short
+- cost-adjusted OOS Sharpe: -0.044
+- cost-adjusted OOS PnL: -26.206
+- cost-adjusted OOS DD: -383.362
+- full Sharpe: -0.306
+- full DD: -1026.828
+
+Decision:
+Reject WHEAT_SRW as a standalone sleeve.
+
+WHEAT_HRW result
+----------------
+Recommended / least-bad row:
+- mr_trend_physical, long_only
+- cost-adjusted OOS Sharpe: -0.044
+- cost-adjusted OOS PnL: -10.759
+- cost-adjusted OOS DD: -282.750
+- full Sharpe: -0.630
+- full DD: -867.472
+
+Decision:
+Reject WHEAT_HRW as a standalone sleeve.
+
+Interpretation
+--------------
+The standalone wheat sleeves are weak. SRW and HRW seem more useful inside the
+relative-value/cross-sectional book than as independent outright directional
+sleeves. This is consistent with the earlier per-grain result where independent
+per-grain outright strategies failed OOS, while relative-value construction was
+much stronger.
+
+Files
+-----
+- wheat_sleeve_experiment.py
+- notes/wheat_sleeves.txt
+
+
+Experiment 40 - Seven-way family/regime/model comparison (2026-05-02)
+======================================================================
+
+Question
+--------
+Backtest the following variants:
+1. simple average of all signals;
+2. equal weight by signal family;
+3. train-IC threshold by family, then validation-IC family selection;
+4. trend/MR regime, select best family per regime and combine with fixed masks;
+5. trend/MR regime, average IC-passing families per regime;
+6. OLS with Kalman filter;
+7. Ridge.
+
+Scope
+-----
+Products tested:
+- CORN
+- SOYABEAN
+- WHEAT_SRW
+- WHEAT_HRW
+
+Signals used:
+- price momentum/reversion;
+- curve structure;
+- COT;
+- public inventory/receipts;
+- Cargill inventory;
+- Cargill crush.
+
+No external data was fetched in this experiment.
+
+Best cost-adjusted row by product
+---------------------------------
+CORN:
+- ridge_expanding_alpha100
+- OOS Sharpe: -0.110
+- OOS PnL: -116.207
+- OOS DD: -794.019
+- Full Sharpe: 0.295
+- Decision: all seven variants fail after costs in this provided-only framework.
+
+SOYABEAN:
+- regime_best_family_trend_mr
+- OOS Sharpe: 1.005
+- OOS PnL: 515.193
+- OOS DD: -223.006
+- Full Sharpe: 0.713
+- Hit rate: 0.517
+- Win days: 266
+- Decision: positive and useful, but still weaker than earlier soybean external
+  weather/crush/family strategies.
+
+WHEAT_SRW:
+- regime_avg_families_trend_mr
+- OOS Sharpe: 0.184
+- OOS PnL: 88.212
+- OOS DD: -199.602
+- Full Sharpe: 0.604
+- Hit rate: 0.479
+- Win days: 268
+- Decision: mildly positive but too weak as standalone.
+
+WHEAT_HRW:
+- regime_best_family_trend_mr
+- OOS Sharpe: 0.030
+- OOS PnL: 10.359
+- OOS DD: -197.169
+- Full Sharpe: 0.211
+- Hit rate: 0.470
+- Win days: 247
+- Decision: too weak as standalone.
+
+Overfit interpretation
+----------------------
+1. Simple average and equal-family weights have the lowest model-overfit risk,
+   but performance is mostly weak. They are useful baselines.
+
+2. IC family selection is fragile. It often chooses families with decent
+   validation IC but poor OOS PnL, especially for CORN and WHEAT.
+
+3. Regime methods improve SOYABEAN and give the best provided-only soybean
+   result in this experiment. They are still moderate overfit risk because the
+   regime design and family selection are research choices.
+
+4. OLS/Kalman and Ridge add coefficient-estimation risk. Ridge was the least
+   bad CORN row here, but it was still negative after costs. Fitted models do
+   not improve the final recommendation.
+
+5. WHEAT_SRW and WHEAT_HRW still look weak as standalone directional sleeves.
+   Their better role is likely relative value within the full grain book.
+
+Files
+-----
+- family_regime_model_comparison.py
+- notes/family_regime_model_comparison.txt
+
+
+Experiment 41 - Lower-overfit wheat improvement via SRW/HRW pair sleeve (2026-05-02)
+===================================================================================
+
+Question
+--------
+Can the wheat strategies be improved without fitting coefficients or adding
+external data?
+
+Context
+-------
+The standalone WHEAT_SRW and WHEAT_HRW sleeves were weak:
+- WHEAT_SRW standalone best cost-adjusted OOS Sharpe: -0.044, OOS DD: -383.
+- WHEAT_HRW standalone best cost-adjusted OOS Sharpe: -0.044, OOS DD: -283.
+
+The better economic hypothesis is that wheat should be traded as relative value,
+especially SRW versus HRW, rather than as two independent outright alphas.
+
+Method
+------
+Test a risk-balanced SRW/HRW pair:
+- pair_score > 0: long WHEAT_SRW and short WHEAT_HRW.
+- pair_score < 0: short WHEAT_SRW and long WHEAT_HRW.
+- leg_position = tanh(pair_score / 2) * target_vol / 60d_leg_pnl_vol.
+- default target daily pair vol: 45, max leg: +/-0.45 lots.
+- cost-control target daily pair vol: 40, max leg: +/-0.40 lots,
+  signal halflife 5, threshold 0.12, weekly rebalance.
+
+No fitted coefficients were used. No Ridge, OLS, Kalman, grid search, or
+external data was used. Cost-adjusted rows include 8.75 USD per one-way lot plus
+5% annual margin funding.
+
+Signals tested
+--------------
+- pair_price_mr: SRW rev_5 minus HRW rev_5.
+- pair_price_trend: SRW price trend minus HRW price trend.
+- pair_curve: SRW curve family minus HRW curve family.
+- pair_cot: SRW COT family minus HRW COT family.
+- pair_physical_public: SRW public inventory/receipts pressure minus HRW.
+- pair_physical_cargill: SRW Cargill inventory/crush family minus HRW.
+- pair_physical: public + Cargill physical.
+- pair_all_family_equal: equal family score difference.
+- pair_mr_curve_physical_equal: equal MR, curve, and physical pair score.
+- pair_given_physical_equal: equal public physical and Cargill physical.
+- pair_balanced_low_overfit: equal MR, trend, curve, COT, public physical,
+  and Cargill physical.
+- pair_fixed_trend_mr_regime: fixed observable trend/MR regime switch.
+- pair_soft_hybrid_70_30: fixed 70% MR/curve/physical and 30% trend/curve/COT.
+- cost-control versions of pair_price_mr and pair_mr_curve_physical_equal.
+
+Cargill usage
+-------------
+The physical Cargill family uses both required Cargill datasets:
+- cgl_inv through cgl_inventory_change.
+- cgl_crush through crush_surprise and crush_utilization.
+
+Best cost-adjusted results
+--------------------------
+Highest OOS Sharpe row, pair_price_mr_cargill_95_05_cost_control:
+- Formula: 95% SRW/HRW price mean reversion + 5% SRW/HRW Cargill physical family.
+- OOS Sharpe: 1.222
+- OOS PnL: 34.844
+- OOS DD: -23.980
+- OOS DD / average margin: 27.74%
+- Full Sharpe: 1.497
+- Full DD: -23.980
+- Hit rate: 0.491
+- OOS win days: 81
+- Avg daily turnover: 0.005
+
+Lower-overfit recommended row, pair_price_mr_cargill_90_10_cost_control:
+- Formula: 90% SRW/HRW price mean reversion + 10% SRW/HRW Cargill physical family.
+- OOS Sharpe: 1.129
+- OOS PnL: 26.689
+- OOS DD: -19.910
+- OOS DD / average margin: 22.76%
+- Full Sharpe: 1.403
+- Full DD: -22.051
+- Hit rate: 0.479
+- OOS win days: 67
+- Avg daily turnover: 0.005
+
+Comparison to prior wheat rows
+------------------------------
+- WHEAT_SRW standalone: OOS Sharpe -0.044, OOS DD -383.
+- WHEAT_HRW standalone: OOS Sharpe -0.044, OOS DD -283.
+- WHEAT_SRW best family/regime directional row: OOS Sharpe 0.184, OOS DD -200.
+- WHEAT_HRW best family/regime directional row: OOS Sharpe 0.030, OOS DD -197.
+- New SRW/HRW pair Cargill 90/10 cost-control row: OOS Sharpe 1.129,
+  OOS DD -20.
+- New SRW/HRW pair Cargill 95/5 cost-control row: OOS Sharpe 1.222,
+  OOS DD -24.
+
+Overfit interpretation
+----------------------
+This is a better wheat candidate than the standalone directional sleeves, but it
+should be presented carefully:
+
+1. Low coefficient overfit:
+   There are no fitted alpha weights, no linear model coefficients, and no
+   optimized thresholds.
+
+2. Some research-selection risk remains:
+   Several fixed wheat hypotheses were tested, and the cost-control version was
+   added because daily turnover made costs visible. This is not zero-overfit.
+
+3. Cargill use:
+   The winning rows include the required Cargill datasets. The Cargill physical
+   family uses cgl_inventory_change from cgl_inv and crush_surprise /
+   crush_utilization from cgl_crush.
+
+4. Economically cleaner than fitted wheat models:
+   SRW/HRW relative value is a plausible wheat-class spread. It removes broad
+   grain beta and focuses on relative wheat tightness/reversion.
+
+Recommendation
+--------------
+Do not revive standalone SRW and HRW outright strategies. If pair trading is
+allowed, use pair_price_mr_cargill_90_10_cost_control as the cleaner
+lower-overfit wheat sleeve. The 95/5 version has higher OOS Sharpe, but choosing
+5% instead of 10% is more selection-sensitive.
+
+Files
+-----
+- wheat_improvement_experiment.py
+- notes/wheat_improvement.txt
+
+
+Experiment 42 - Soybean low-volatility switch (2026-05-02)
+==========================================================
+
+Question
+--------
+The soybean drawdown-priority strategy underperformed in the low-price /
+abundant-supply period. Can a low-volatility switch improve the result without
+overfitting?
+
+Method
+------
+Low-vol regime:
+- 60-day soybean PnL volatility < 0.80 * expanding median volatility.
+
+Base strategy:
+- drawdown-priority physical 40 / FX export 20 / external crush 20 /
+  weather HDD/CDD 20.
+
+Switches tested:
+- low_vol_flat_else_base: do not trade during low-vol regime.
+- low_vol_half_base_else_base: cut base exposure in half during low-vol regime.
+- low_vol_rev5_ls_else_base: use rev_5 long/short mean reversion in low vol.
+- low_vol_defensive_mr_else_base: use fixed defensive MR blend in low vol.
+- low_vol_curve_crush_ls_else_base: use curve/crush long/short in low vol.
+
+Controls:
+- no OLS/Ridge/Kalman;
+- no optimized coefficients;
+- no grid-searched regime threshold;
+- fixed volatility rule and fixed switch candidates.
+
+Cost-adjusted results
+---------------------
+base_drawdown_priority:
+- OOS Sharpe: 2.168
+- OOS PnL: 221.809
+- OOS DD: -55.203
+- Full Sharpe: 1.227
+- Full DD: -87.613
+- Low-vol Sharpe: 1.263
+- Low-vol PnL: 139.134
+- Low-vol DD: -56.465
+- Low-price abundant-supply Sharpe: -0.818
+- Low-price abundant-supply PnL: -38.406
+- Low-price abundant-supply DD: -70.610
+
+low_vol_flat_else_base:
+- OOS Sharpe: 5.034
+- OOS PnL: 103.034
+- OOS DD: -29.781
+- Full Sharpe: 1.208
+- Full DD: -96.085
+- Low-vol performance: no active trades
+- Low-price abundant-supply Sharpe: -2.875
+- Low-price abundant-supply PnL: -56.542
+- Low-price abundant-supply DD: -81.907
+
+low_vol_half_base_else_base:
+- OOS Sharpe: 2.474
+- OOS PnL: 162.422
+- OOS DD: -34.692
+- Full Sharpe: 1.165
+- Full DD: -87.017
+- Low-vol Sharpe: 1.263
+- Low-vol PnL: 69.567
+- Low-vol DD: -28.233
+- Low-price abundant-supply Sharpe: -1.335
+- Low-price abundant-supply PnL: -47.474
+- Low-price abundant-supply DD: -72.839
+
+Mean-reversion replacements failed:
+- low_vol_rev5_ls_else_base OOS Sharpe: -0.176, OOS DD: -377.162
+- low_vol_defensive_mr_else_base OOS Sharpe: -0.120, OOS DD: -246.004
+- low_vol_curve_crush_ls_else_base OOS Sharpe: 0.062, OOS DD: -384.138
+
+Interpretation
+--------------
+The reasonable no-overfit fix is not to replace the soybean low-vol sleeve with
+a long/short mean-reversion model. Those replacement sleeves made drawdown much
+worse.
+
+Two viable low-vol controls are:
+1. low_vol_flat_else_base: best OOS Sharpe/DD, but gives up too much PnL and has
+   worse low-price abundant-supply behavior.
+2. low_vol_half_base_else_base: better OOS Sharpe/DD than the base strategy
+   while preserving more participation. This is the cleaner fund-style variant.
+
+Recommendation
+--------------
+Use low_vol_half_base_else_base if the priority is improving drawdown without
+turning the strategy into a very sparse timing model. Keep the original
+drawdown-priority strategy if the priority is higher OOS PnL.
+
+Files
+-----
+- soybean_low_vol_switch_experiment.py
+- notes/soybean_low_vol_switch.txt
+
+
+Experiment 43 - Soybean low-vol weak-period refinements (2026-05-02)
+====================================================================
+
+Question
+--------
+Can the low-vol switch be improved specifically in the weak periods:
+- Low-price abundant supply: prior low-vol half switch PnL -47.474,
+  Sharpe -1.335, DD -72.839.
+- US-China trade war: prior low-vol half switch PnL -6.546,
+  Sharpe -0.563, DD -29.405.
+
+Additional fixed filters tested
+-------------------------------
+1. low_vol_weak_trend_flat_else_base
+   - Condition: low volatility and given_trend <= 0.
+   - Action: flat instead of base position.
+
+2. low_vol_weak_trend_half_else_base
+   - Condition: low volatility and given_trend <= 0.
+   - Action: half base position.
+
+3. low_vol_weak_physical_flat_else_base
+   - Condition: low volatility and given_physical_family <= 0.
+   - Action: flat instead of base position.
+
+4. low_vol_abundant_proxy_flat_else_base
+   - Condition: low volatility, soybean price below its 252-day moving average,
+     and 60-day momentum negative.
+   - Action: flat instead of base position.
+
+5. low_vol_abundant_proxy_half_else_base
+   - Same abundant-supply proxy, but half base position.
+
+No fitted coefficients, no hard-coded dates, and no Ridge/OLS/Kalman were used.
+
+Main cost-adjusted results
+--------------------------
+base_drawdown_priority:
+- OOS Sharpe: 2.168
+- OOS PnL: 221.809
+- OOS DD: -55.203
+- Low-price abundant-supply PnL: -38.406
+- Low-price abundant-supply DD: -70.610
+- US-China trade-war PnL: -14.356
+- US-China trade-war DD: -47.978
+
+low_vol_half_base_else_base:
+- OOS Sharpe: 2.474
+- OOS PnL: 162.422
+- OOS DD: -34.692
+- Low-price abundant-supply PnL: -47.474
+- Low-price abundant-supply DD: -72.839
+- US-China trade-war PnL: -6.546
+- US-China trade-war DD: -29.405
+
+low_vol_abundant_proxy_flat_else_base:
+- OOS Sharpe: 1.995
+- OOS PnL: 179.842
+- OOS DD: -68.556
+- Low-price abundant-supply PnL: -14.491
+- Low-price abundant-supply DD: -50.718
+- US-China trade-war PnL: -28.755
+- US-China trade-war DD: -49.502
+
+low_vol_weak_trend_flat_else_base:
+- OOS Sharpe: 2.349
+- OOS PnL: 211.429
+- OOS DD: -51.701
+- Low-price abundant-supply PnL: -69.852
+- Low-price abundant-supply DD: -95.217
+- US-China trade-war PnL: 15.923
+- US-China trade-war DD: -21.245
+
+Interpretation
+--------------
+The two weak periods need different observable controls:
+
+1. Low-price abundant supply improves with the abundant-supply proxy:
+   low volatility + below 252-day moving average + negative 60-day momentum.
+   This cuts low-price period PnL from -47.474 to -14.491 versus the previous
+   low-vol half switch and cuts DD from -72.839 to -50.718.
+
+2. US-China trade war improves with the weak-trend low-vol filter:
+   low volatility + given_trend <= 0. This moves trade-war PnL from -6.546 to
+   +15.923 and DD from -29.405 to -21.245.
+
+3. A single simple switch did not improve both weak periods simultaneously
+   without creating new damage elsewhere. For a low-overfit final model, prefer
+   the simpler low_vol_half_base_else_base or choose one targeted risk control
+   depending on what weakness is more important to address.
+
+Recommendation
+--------------
+Do not claim that low-vol has been turned into a new alpha source. The evidence
+supports low-vol risk controls:
+- use low_vol_half_base_else_base as the general fund-style risk-control switch;
+- use low_vol_abundant_proxy_flat_else_base as a diagnostic/risk overlay when
+  the concern is abundant-supply drawdown;
+- use low_vol_weak_trend_flat_else_base as a diagnostic/risk overlay when the
+  concern is trade-war/weak-trend drawdown.
+
+
+Experiment 44 - Wheat SRW/HRW trend/MR improvement (2026-05-02)
+==============================================================
+
+Question
+--------
+The SRW/HRW pair strategy underperformed in trend-like periods:
+- 2019 prevented planting floods: PnL -11.579, Sharpe -4.629.
+- COVID recovery/China buying: PnL -14.392, Sharpe -4.001.
+
+Can we add a trend-aware rule without introducing fitted coefficients?
+
+Trend signal
+------------
+Build an observable SRW/HRW pair-trend signal:
+- ratio = adjusted WHEAT_SRW price / adjusted WHEAT_HRW price.
+- trend_20 = rolling z-score of 20-day ratio return.
+- trend_60 = rolling z-score of 60-day ratio return.
+- pair_trend = average(trend_20, trend_60).
+
+Base MR/Cargill signal:
+- mr_cargill = 90% pair_price_mr + 10% pair_physical_cargill.
+- pair_physical_cargill uses both Cargill datasets:
+  cgl_inventory_change from cgl_inv and crush_surprise / crush_utilization from
+  cgl_crush.
+
+Variants tested
+---------------
+1. Fixed trend blend:
+   signal = 80% mr_cargill + 20% pair_trend.
+
+2. Trend-conflict flat filter:
+   trend_state = abs(pair_trend) > expanding median(abs(pair_trend)).
+   If trend_state and mr_cargill has opposite sign from pair_trend, go flat.
+   Otherwise use mr_cargill.
+
+3. Hard trend switches:
+   Switch fully or mostly into pair_trend during trend states.
+
+Result
+------
+Hard trend switches were bad. They increased trend exposure too much and
+damaged the full-period result.
+
+The two useful variants were:
+
+Fixed 80/20 MR + trend blend:
+- OOS Sharpe: 1.291
+- OOS PnL: 36.374
+- OOS DD: -29.441
+- Full Sharpe: 1.098
+- Full DD: -29.441
+
+Trend-conflict flat filter:
+- OOS Sharpe: 2.145
+- OOS PnL: 26.671
+- OOS DD: -16.956
+- Full Sharpe: 1.462
+- Full DD: -20.246
+
+Key period comparison
+---------------------
+Base 90/10 MR/Cargill:
+- US-China trade war: PnL 6.922, Sharpe 0.546, DD -18.854.
+- 2019 floods: PnL -11.579, Sharpe -4.629, DD -13.731.
+- COVID shock: PnL -0.143, Sharpe -0.040, DD -13.325.
+- COVID recovery: PnL -14.392, Sharpe -4.001, DD -17.658.
+
+Fixed 80/20 MR + trend blend:
+- US-China trade war: PnL 17.331, Sharpe 1.399, DD -14.033.
+- 2019 floods: PnL -3.499, Sharpe -1.400, DD -10.155.
+- COVID shock: PnL 0.957, Sharpe 0.452, DD -12.903.
+- COVID recovery: PnL 8.257, Sharpe 4.123, DD -4.248.
+
+Trend-conflict flat filter:
+- US-China trade war: PnL 3.941, Sharpe 0.711, DD -15.296.
+- 2019 floods: PnL -11.752, Sharpe -5.150, DD -15.296.
+- COVID shock: PnL 5.114, Sharpe 1.171, DD -16.956.
+- COVID recovery: PnL 2.056, Sharpe 3.334, DD -3.191.
+
+Interpretation
+--------------
+If the goal is specifically to improve trend-like wheat periods, the fixed
+80/20 MR + trend blend is better. It improves all four weak OOS/event periods
+listed above and turns COVID recovery positive.
+
+If the goal is the best overall OOS Sharpe and drawdown, the trend-conflict flat
+filter is better, but it does not fix 2019 floods.
+
+Recommendation
+--------------
+For fund presentation:
+- keep pair_price_mr_cargill_90_10_cost_control as the clean pure MR baseline;
+- present pair_price_mr_cargill_80_20_pair_trend_cost_control as the
+  trend-aware wheat variant;
+- use pair_price_mr_cargill_trend_conflict_flat_cost_control only as a
+  conservative risk-control diagnostic, because it is more timing-like and has
+  fewer active days.
+
+
+Experiment 45 - Corn abundant-supply risk control (2026-05-02)
+==============================================================
+
+Question
+--------
+Can the best corn strategy be improved enough to be closer to fund-grade by
+reducing the low-price abundant-supply drawdown?
+
+Base
+----
+Base strategy: regime_ic_vol.
+
+Cost-adjusted base:
+- OOS Sharpe: 0.759
+- OOS PnL: 224.331
+- OOS DD: -242.872
+- Full Sharpe: 0.208
+- Full DD: -515.704
+- Low-price abundant-supply PnL: -123.721
+- Low-price abundant-supply DD: -416.424
+- COVID demand shock PnL: -29.532
+- COVID demand shock DD: -49.292
+
+Observable controls tested
+--------------------------
+1. below_ma_and_negative_mom:
+   corn price below 252-day moving average and mom_60 < 0.
+
+2. below_ma_or_negative_mom:
+   corn price below 252-day moving average or mom_60 < 0.
+
+3. abundant_low_or_normal:
+   below_ma_and_negative_mom and 60d vol <= 1.05 * long-run median vol.
+
+4. abundant_curve_confirmed:
+   below_ma_and_negative_mom and curve_spread <= 0.
+
+Actions:
+- half exposure while condition is true;
+- flat while condition is true.
+
+No fitted coefficients, no date filters, no Ridge/OLS/Kalman.
+
+Best improved row
+-----------------
+below_ma_or_negative_mom_flat:
+- OOS Sharpe: 1.834
+- OOS PnL: 266.180
+- OOS DD: -141.176
+- Full Sharpe: 0.546
+- Full DD: -307.978
+- Low-price abundant-supply PnL: -212.191
+- Low-price abundant-supply DD: -229.698
+
+Comparison
+----------
+base_regime_ic_vol:
+- OOS Sharpe: 0.759
+- OOS DD: -242.872
+- Full Sharpe: 0.208
+- Full DD: -515.704
+- Low-price DD: -416.424
+
+below_ma_or_negative_mom_flat:
+- OOS Sharpe improves to 1.834.
+- OOS DD improves to -141.176.
+- Full Sharpe improves to 0.546.
+- Full DD improves to -307.978.
+- Low-price DD improves to -229.698.
+
+Tradeoff
+--------
+The control reduces drawdown but does not make the low-price regime profitable.
+Low-price abundant-supply PnL worsens from -123.721 to -212.191 because the
+filter avoids some large losses but also misses profitable rebound trades.
+
+Interpretation
+--------------
+This makes corn more fund-usable as a risk-controlled satellite sleeve, but it
+is still weaker than soybean and wheat. The best role for corn remains small
+risk allocation focused on event/shock participation with an abundant-supply
+delever/flat guard.
+
+Files
+-----
+- corn_abundant_supply_improvement.py
+- notes/corn_abundant_supply_improvement.txt

@@ -1,0 +1,159 @@
+Family/regime/model strategy comparison
+Date: 2026-05-02
+
+Universe
+--------
+Products: CORN, SOYABEAN, WHEAT_SRW, WHEAT_HRW.
+Signals: price momentum/reversion, curve, COT, public physical, Cargill inventory, Cargill crush.
+No external data was fetched in this experiment.
+
+Strategy Definitions
+--------------------
+- avg_all_signals: Simple average of every provided economic signal.
+  Formula: mean(price, curve, COT, public physical, Cargill inventory, Cargill crush signals)
+  Economic rationale: Broad diversification; assumes weak signals are safer in a simple basket.
+  Overfit note: Low model overfit, but can be economically diluted.
+- equal_family_weight: Average within each family, then equal weight each family.
+  Formula: mean(price_family, curve_family, cot_family, public_physical_family, cargill_physical_family)
+  Economic rationale: Prevents a family with many columns from dominating the signal.
+  Overfit note: Low model overfit; family choices are researcher-defined.
+- ic_family_selected: Keep families with train IC above threshold, select highest validation IC family.
+  Formula: selected_family_signal, oriented by train IC sign
+  Economic rationale: Use only families with evidence of predictive rank correlation.
+  Overfit note: Moderate/high selection risk; validation IC can be noisy.
+- regime_best_family_trend_mr: Trend/MR observable regime; pick best validation-IC family separately per regime.
+  Formula: 1(trend)*best_trend_family + 1(MR/chop)*best_mr_family
+  Economic rationale: Signals may work in different states; wheat/corn can trend while soy can revert.
+  Overfit note: Moderate selection risk; weights are fixed masks, not optimized.
+- regime_avg_families_trend_mr: Trend/MR observable regime; average all IC-passing families in each regime.
+  Formula: 1(trend)*avg(IC-passing trend families) + 1(MR/chop)*avg(IC-passing MR families)
+  Economic rationale: Keeps regime conditioning but avoids picking a single family winner.
+  Overfit note: Lower than best-family regime selection, but still regime-research risk.
+- ols_kalman_filter: Dynamic linear OLS coefficients updated with a Kalman filter.
+  Formula: y_t = x_t beta_t + error; beta_t follows a random walk
+  Economic rationale: Allows relationships to drift through time without a full static fit.
+  Overfit note: Coefficient-estimation risk; parameters are fixed, not OOS tuned.
+- ridge_expanding_alpha100: Expanding-window Ridge with fixed alpha 100.
+  Formula: argmin ||y-Xb||^2 + 100||b||^2, refit every 21 trading days
+  Economic rationale: Regularized linear combination of all signals.
+  Overfit note: Coefficient-estimation risk; fixed alpha reduces but does not remove it.
+
+Results Summary
+---------------
+commodity                           strategy       mode  cost_adjusted  is_sharpe  oos_sharpe  oos_pnl   oos_dd  full_sharpe   full_dd  hit_rate  win_days  turnover  avg_gross_exposure                                                                                                                                               overfit_comment
+     CORN           ridge_expanding_alpha100 long_short          False      0.583       0.033   34.843 -771.943        0.396  -818.147     0.475       325     0.015               0.074                                                                                      Coefficient-estimation risk; fixed alpha reduces but does not remove it.
+     CORN           ic_family_selected_curve long_short          False      0.049      -0.065  -73.716 -578.011        0.018 -1499.071     0.473       343     0.006               0.074                                                                                                     Moderate/high selection risk; validation IC can be noisy.
+     CORN                    avg_all_signals long_short          False      0.210      -0.125  -51.740 -419.619        0.114  -434.071     0.470       286     0.004               0.034                                                                                                           Low model overfit, but can be economically diluted.
+     CORN                  ols_kalman_filter long_short          False      0.358      -0.199 -177.490 -772.692        0.203  -774.600     0.493       329     0.017               0.069                                                                                             Coefficient-estimation risk; parameters are fixed, not OOS tuned.
+     CORN                equal_family_weight long_short          False      0.232      -0.300 -137.593 -515.614        0.073  -515.614     0.471       290     0.004               0.037                                                                                                     Low model overfit; family choices are researcher-defined.
+     CORN        regime_best_family_trend_mr long_short          False      1.486      -0.366 -149.192 -424.407        0.906  -424.407     0.462       228     0.009               0.034                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+     CORN       regime_avg_families_trend_mr long_short          False      1.589      -0.588 -267.140 -491.206        0.767  -491.206     0.478       260     0.006               0.032                                                                                      Lower than best-family regime selection, but still regime-research risk.
+     CORN           ridge_expanding_alpha100 long_short           True      0.503      -0.110 -116.207 -794.019        0.295  -878.809     0.469       321     0.015               0.074                                                  Coefficient-estimation risk; fixed alpha reduces but does not remove it. Reject: negative cost-adjusted OOS.
+     CORN           ic_family_selected_curve long_short           True      0.013      -0.133 -150.374 -618.134       -0.027 -1578.339     0.473       343     0.006               0.074                                                                 Moderate/high selection risk; validation IC can be noisy. Reject: negative cost-adjusted OOS.
+     CORN                    avg_all_signals long_short           True      0.160      -0.223  -92.231 -436.504        0.051  -439.471     0.470       286     0.004               0.034                                                                       Low model overfit, but can be economically diluted. Reject: negative cost-adjusted OOS.
+     CORN                  ols_kalman_filter long_short           True      0.280      -0.390 -348.718 -843.551        0.095  -843.551     0.491       328     0.017               0.069                                                         Coefficient-estimation risk; parameters are fixed, not OOS tuned. Reject: negative cost-adjusted OOS.
+     CORN                equal_family_weight long_short           True      0.179      -0.400 -183.282 -534.052        0.006  -534.052     0.471       290     0.004               0.037                                                                 Low model overfit; family choices are researcher-defined. Reject: negative cost-adjusted OOS.
+     CORN        regime_best_family_trend_mr long_short           True      1.408      -0.558 -227.401 -460.758        0.792  -460.758     0.462       228     0.009               0.034                                                          Moderate selection risk; weights are fixed masks, not optimized. Reject: negative cost-adjusted OOS.
+     CORN       regime_avg_families_trend_mr long_short           True      1.508      -0.706 -320.335 -532.755        0.673  -532.755     0.478       260     0.006               0.032                                                  Lower than best-family regime selection, but still regime-research risk. Reject: negative cost-adjusted OOS.
+ SOYABEAN        regime_best_family_trend_mr long_short          False      0.638       1.076  551.611 -221.699        0.768  -430.511     0.517       266     0.004               0.020                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+ SOYABEAN           ic_family_selected_price long_short          False      0.382       0.766  708.658 -663.993        0.501  -663.993     0.501       348     0.003               0.024                                                                                                     Moderate/high selection risk; validation IC can be noisy.
+ SOYABEAN       regime_avg_families_trend_mr long_short          False      0.207       0.618  248.610 -194.963        0.330  -665.854     0.489       271     0.003               0.015                                                                                      Lower than best-family regime selection, but still regime-research risk.
+ SOYABEAN           ridge_expanding_alpha100 long_short          False     -0.235       0.591  643.131 -671.083        0.047 -1307.401     0.490       344     0.007               0.033                                                                                      Coefficient-estimation risk; fixed alpha reduces but does not remove it.
+ SOYABEAN                  ols_kalman_filter long_short          False     -0.123       0.445  459.879 -340.231        0.044  -898.405     0.497       339     0.007               0.036                                                                                             Coefficient-estimation risk; parameters are fixed, not OOS tuned.
+ SOYABEAN                    avg_all_signals long_short          False     -0.050       0.436  188.987 -332.346        0.084  -406.382     0.491       258     0.002               0.015                                                                                                           Low model overfit, but can be economically diluted.
+ SOYABEAN                equal_family_weight long_short          False     -0.108       0.289  131.311 -341.036        0.002  -458.940     0.482       261     0.002               0.016                                                                                                     Low model overfit; family choices are researcher-defined.
+ SOYABEAN        regime_best_family_trend_mr long_short           True      0.590       1.005  515.193 -223.006        0.713  -456.835     0.517       266     0.004               0.020                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+ SOYABEAN           ic_family_selected_price long_short           True      0.351       0.721  667.300 -684.305        0.466  -684.305     0.501       348     0.003               0.024                                                                                                     Moderate/high selection risk; validation IC can be noisy.
+ SOYABEAN       regime_avg_families_trend_mr long_short           True      0.168       0.540  217.242 -195.989        0.279  -680.559     0.489       271     0.003               0.015                                                                                      Lower than best-family regime selection, but still regime-research risk.
+ SOYABEAN           ridge_expanding_alpha100 long_short           True     -0.281       0.515  561.055 -698.342       -0.009 -1335.926     0.490       344     0.007               0.033 Coefficient-estimation risk; fixed alpha reduces but does not remove it. Positive OOS but keep as diagnostic unless validation/full-period behavior is clean.
+ SOYABEAN                    avg_all_signals long_short           True     -0.078       0.382  165.622 -342.013        0.048  -432.776     0.491       258     0.002               0.015                                                                                                           Low model overfit, but can be economically diluted.
+ SOYABEAN                  ols_kalman_filter long_short           True     -0.160       0.357  368.969 -348.029       -0.008  -937.146     0.494       337     0.007               0.036        Coefficient-estimation risk; parameters are fixed, not OOS tuned. Positive OOS but keep as diagnostic unless validation/full-period behavior is clean.
+ SOYABEAN                equal_family_weight long_short           True     -0.138       0.233  105.882 -351.767       -0.035  -488.598     0.482       261     0.002               0.016                                                                                                     Low model overfit; family choices are researcher-defined.
+WHEAT_HRW        regime_best_family_trend_mr long_short          False      0.349       0.136   47.423 -193.594        0.287  -533.917     0.470       247     0.005               0.020                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+WHEAT_HRW           ridge_expanding_alpha100 long_short          False     -0.596       0.065   57.595 -515.998       -0.393 -1943.560     0.473       327     0.009               0.045                                                                                      Coefficient-estimation risk; fixed alpha reduces but does not remove it.
+WHEAT_HRW       regime_avg_families_trend_mr long_short          False      0.261      -0.077  -29.659 -260.311        0.168  -456.764     0.471       272     0.003               0.020                                                                                      Lower than best-family regime selection, but still regime-research risk.
+WHEAT_HRW ic_family_selected_physical_public long_short          False      0.415      -0.188 -194.809 -590.294        0.211 -1071.960     0.491       347     0.004               0.034                                                                                                     Moderate/high selection risk; validation IC can be noisy.
+WHEAT_HRW                equal_family_weight long_short          False     -0.247      -0.247 -126.474 -345.285       -0.247  -810.054     0.477       302     0.003               0.023                                                                                                     Low model overfit; family choices are researcher-defined.
+WHEAT_HRW                    avg_all_signals long_short          False     -0.156      -0.418 -181.815 -338.727       -0.224  -708.137     0.482       288     0.002               0.022                                                                                                           Low model overfit, but can be economically diluted.
+WHEAT_HRW                  ols_kalman_filter long_short          False     -0.511      -0.439 -362.866 -638.932       -0.487 -2340.949     0.449       303     0.010               0.046                                                                                             Coefficient-estimation risk; parameters are fixed, not OOS tuned.
+WHEAT_HRW        regime_best_family_trend_mr long_short           True      0.285       0.030   10.359 -197.169        0.211  -576.778     0.470       247     0.005               0.020                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+WHEAT_HRW           ridge_expanding_alpha100 long_short           True     -0.657      -0.032  -27.992 -547.832       -0.465 -2045.429     0.473       327     0.009               0.045                                                  Coefficient-estimation risk; fixed alpha reduces but does not remove it. Reject: negative cost-adjusted OOS.
+WHEAT_HRW       regime_avg_families_trend_mr long_short           True      0.220      -0.142  -54.907 -271.864        0.121  -462.509     0.471       272     0.003               0.020                                                  Lower than best-family regime selection, but still regime-research risk. Reject: negative cost-adjusted OOS.
+WHEAT_HRW ic_family_selected_physical_public long_short           True      0.376      -0.240 -249.674 -605.623        0.167 -1117.274     0.491       347     0.004               0.034                                                                 Moderate/high selection risk; validation IC can be noisy. Reject: negative cost-adjusted OOS.
+WHEAT_HRW                equal_family_weight long_short           True     -0.280      -0.302 -155.125 -367.589       -0.286  -826.260     0.477       302     0.003               0.023                                                                 Low model overfit; family choices are researcher-defined. Reject: negative cost-adjusted OOS.
+WHEAT_HRW                    avg_all_signals long_short           True     -0.190      -0.477 -207.751 -359.037       -0.264  -723.572     0.482       288     0.002               0.022                                                                       Low model overfit, but can be economically diluted. Reject: negative cost-adjusted OOS.
+WHEAT_HRW                  ols_kalman_filter long_short           True     -0.565      -0.554 -458.301 -718.693       -0.556 -2546.897     0.447       302     0.010               0.046                                                         Coefficient-estimation risk; parameters are fixed, not OOS tuned. Reject: negative cost-adjusted OOS.
+WHEAT_SRW       regime_avg_families_trend_mr long_short          False      0.844       0.245  117.564 -194.165        0.654  -386.697     0.479       268     0.003               0.021                                                                                      Lower than best-family regime selection, but still regime-research risk.
+WHEAT_SRW                  ols_kalman_filter long_short          False     -0.143       0.175  151.727 -425.941       -0.054  -874.433     0.487       333     0.011               0.045                                                                                             Coefficient-estimation risk; parameters are fixed, not OOS tuned.
+WHEAT_SRW        regime_best_family_trend_mr long_short          False      0.584       0.080   85.395 -399.869        0.427  -651.508     0.462       335     0.005               0.039                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+WHEAT_SRW ic_family_selected_physical_public long_short          False      0.723      -0.113 -129.748 -616.215        0.444  -736.185     0.467       323     0.004               0.040                                                                                                     Moderate/high selection risk; validation IC can be noisy.
+WHEAT_SRW           ridge_expanding_alpha100 long_short          False     -0.085      -0.214 -213.197 -781.417       -0.126  -947.490     0.462       324     0.009               0.045                                                                                      Coefficient-estimation risk; fixed alpha reduces but does not remove it.
+WHEAT_SRW                equal_family_weight long_short          False     -0.398      -0.305 -161.294 -404.227       -0.372  -806.309     0.474       288     0.003               0.025                                                                                                     Low model overfit; family choices are researcher-defined.
+WHEAT_SRW                    avg_all_signals long_short          False     -0.341      -0.414 -190.393 -400.993       -0.361  -700.193     0.479       281     0.003               0.023                                                                                                           Low model overfit, but can be economically diluted.
+WHEAT_SRW       regime_avg_families_trend_mr long_short           True      0.799       0.184   88.212 -199.602        0.604  -395.921     0.479       268     0.003               0.021                                                                                      Lower than best-family regime selection, but still regime-research risk.
+WHEAT_SRW                  ols_kalman_filter long_short           True     -0.209       0.064   55.192 -441.412       -0.132  -924.149     0.487       333     0.011               0.045        Coefficient-estimation risk; parameters are fixed, not OOS tuned. Positive OOS but keep as diagnostic unless validation/full-period behavior is clean.
+WHEAT_SRW        regime_best_family_trend_mr long_short           True      0.540       0.030   31.946 -405.187        0.381  -680.587     0.462       335     0.005               0.039                                                                                              Moderate selection risk; weights are fixed masks, not optimized.
+WHEAT_SRW ic_family_selected_physical_public long_short           True      0.686      -0.160 -184.146 -625.960        0.403  -753.866     0.467       323     0.004               0.040                                                                 Moderate/high selection risk; validation IC can be noisy. Reject: negative cost-adjusted OOS.
+WHEAT_SRW           ridge_expanding_alpha100 long_short           True     -0.152      -0.292 -291.609 -842.337       -0.197  -994.450     0.462       324     0.009               0.045                                                  Coefficient-estimation risk; fixed alpha reduces but does not remove it. Reject: negative cost-adjusted OOS.
+WHEAT_SRW                equal_family_weight long_short           True     -0.433      -0.359 -189.586 -423.458       -0.412  -845.451     0.474       288     0.003               0.025                                                                 Low model overfit; family choices are researcher-defined. Reject: negative cost-adjusted OOS.
+WHEAT_SRW                    avg_all_signals long_short           True     -0.376      -0.471 -216.627 -419.100       -0.402  -733.479     0.479       281     0.003               0.023                                                                       Low model overfit, but can be economically diluted. Reject: negative cost-adjusted OOS.
+
+CORN diagnostics
+----------------
+Family IC table:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic
+           curve       1565    -0.016             520          0.091       781    0.008             True
+physical_cargill       1565     0.018             520          0.064       781    0.025             True
+ physical_public       1565     0.032             520          0.047       781   -0.050             True
+             cot       1565    -0.013             520          0.008       781   -0.022            False
+           price       1565     0.002             520         -0.009       781    0.044            False
+
+Regime family selections:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic  abs_validation_ic     regime  selected_family
+physical_cargill        753     0.049             264          0.096       494    0.030             True              0.096      trend physical_cargill
+             cot        812     0.025             256          0.100       287   -0.065             True              0.100 mr_or_chop              cot
+
+SOYABEAN diagnostics
+--------------------
+Family IC table:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic
+             cot       1565     0.020             520          0.018       781    0.038             True
+physical_cargill       1565     0.041             520         -0.016       781    0.009             True
+           price       1565     0.026             520         -0.018       781    0.066             True
+           curve       1565     0.008             520         -0.009       781    0.030            False
+ physical_public       1565     0.006             520         -0.028       781   -0.075            False
+
+Regime family selections:
+         family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic  abs_validation_ic     regime selected_family
+            cot        680     0.041             268          0.095       482    0.058             True              0.095      trend             cot
+physical_public        885    -0.018             252         -0.039       299   -0.113             True              0.039 mr_or_chop physical_public
+
+WHEAT_SRW diagnostics
+---------------------
+Family IC table:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic
+ physical_public       1565    -0.026             520          0.039       781    0.008             True
+             cot       1565     0.045             520         -0.020       781    0.025             True
+physical_cargill       1565    -0.002             520          0.053       781    0.025            False
+           curve       1565    -0.009             520          0.041       781    0.009            False
+           price       1565    -0.014             520         -0.012       781   -0.038            False
+
+Regime family selections:
+         family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic  abs_validation_ic     regime selected_family
+          price        781    -0.018             258         -0.081       426   -0.020             True              0.081      trend           price
+physical_public        784    -0.018             262         -0.049       355    0.066             True              0.049 mr_or_chop physical_public
+
+WHEAT_HRW diagnostics
+---------------------
+Family IC table:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic
+ physical_public       1565    -0.025             520          0.059       781    0.039             True
+physical_cargill       1565    -0.029             520          0.058       781    0.049             True
+           curve       1565     0.033             520          0.003       781   -0.010             True
+             cot       1565     0.033             520         -0.021       781    0.017             True
+           price       1565    -0.015             520         -0.035       781   -0.004             True
+
+Regime family selections:
+          family  train_obs  train_ic  validation_obs  validation_ic  test_obs  test_ic  passes_train_ic  abs_validation_ic     regime  selected_family
+             cot        792    -0.015             281         -0.063       469   -0.016             True              0.063      trend              cot
+physical_cargill        773    -0.046             239          0.087       312    0.103             True              0.087 mr_or_chop physical_cargill

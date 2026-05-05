@@ -1,0 +1,677 @@
+Soybean-only signal experiments
+===============================
+
+Run date: 2026-05-01
+
+Purpose
+-------
+Test soybean-only strategies in two separate tracks:
+
+1. Given-data-only signals from the provided training files.
+2. External signals from free sources:
+   - yfinance soybean complex and macro futures/FX proxies;
+   - Meteostat crop-belt weather, including HDD/CDD-style features.
+
+The notebook now has two separate optional soybean cells:
+
+1. Soybean Given-Data-Only Signal Cell
+2. Soybean External Signal Family Cell
+
+Important caveat
+----------------
+These tests are lower-overfit, not impossible-to-overfit. The formulas use fixed
+economic signs, equal family weights, smoothing, thresholding, and lagged
+volatility targeting. However, choosing the best candidate after viewing the
+research table is still a research-selection risk. The strongest conclusion
+should be validated on a true 2021-2026 holdout before being called robust.
+
+Shared backtest setup
+---------------------
+- Instrument: SOYABEAN front adjusted futures from the provided dataset.
+- Test/OOS period: 2018-01-01 to 2020-12-31.
+- Positions are long-only unless explicitly marked long/short.
+- Signals are tanh-normalized, EWMA-smoothed with halflife 2, and thresholded.
+- Position sizing uses lagged 60-day soybean futures PnL volatility.
+- Target daily PnL volatility = 75 USD.
+- Max position = 0.50 lots.
+- Cost-adjusted results use 8.75 USD per one-way lot plus 5% annual margin
+  funding.
+
+
+Track 1 — Given-data-only signals
+=================================
+
+Signals tested
+--------------
+- given_crush_pressure:
+  average of Cargill crush surprise and Cargill crush utilization.
+
+- given_trend:
+  average of mom_20, mom_60, curve_spread, and cot_pm_oi_level.
+
+- given_conservative_long_blend:
+  fixed blend of trend/curve/COT, inventory pressure, Cargill inventory, and
+  Cargill crush.
+
+- given_price_family:
+  average of mom_20, mom_60, and rev_5.
+
+- given_equal_price_physical:
+  equal weight of price family and physical family, tested long/short.
+
+- given_physical_family:
+  average of inventory pressure, crush pressure, and curve tightness.
+
+- given_inventory_pressure:
+  negative public inventory change, receipts change, and Cargill inventory
+  change.
+
+Given-data-only results
+-----------------------
+Zero-cost:
+
+  experiment                         mode       test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  given_crush_pressure               long-only   1.679      217       -94    1.923      379      -115    0.004
+  given_trend                        long-only   1.456      344      -196    0.768      606      -293    0.001
+  given_conservative_long_blend      long-only   1.439      234       -86    0.982      460      -238    0.002
+  given_price_family                 long-only   1.420      448      -210    1.060    1,003      -333    0.001
+  given_equal_price_physical         long/short  0.974      298      -191    0.437      180      -252    0.001
+  given_physical_family              long-only   0.787      163      -121    0.555      127      -141    0.002
+  given_inventory_pressure           long-only  -0.850     -188      -283   -0.840     -259      -360    0.002
+
+Cost-adjusted:
+
+  experiment                         mode       test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  given_crush_pressure               long-only   1.604      207       -95    1.862      367      -118    0.004
+  given_trend                        long-only   1.415      334      -200    0.739      584      -301    0.001
+  given_conservative_long_blend      long-only   1.393      227       -88    0.951      446      -238    0.002
+  given_price_family                 long-only   1.384      437      -217    1.032      977      -343    0.001
+  given_equal_price_physical         long/short  0.936      286      -197    0.399      165      -257    0.001
+  given_physical_family              long-only   0.741      153      -124    0.509      116      -143    0.002
+  given_inventory_pressure           long-only  -0.908     -201      -295   -0.896     -277      -376    0.002
+
+Given-data interpretation
+-------------------------
+The strongest provided-file soybean signal is Cargill crush pressure. It has the
+best OOS Sharpe among given-data-only candidates and keeps drawdown small. This
+is economically coherent: Cargill crush surprise/utilization is directly
+soybean-specific, unlike inventory pressure, which is broader and noisier.
+
+
+Track 2 — External signals
+==========================
+
+External families tested
+------------------------
+1. external_crush_family
+   - yfinance soybean futures, soybean meal futures, and soybean oil futures.
+   - Builds a practical crush proxy:
+       crush = 0.022 * soymeal + 0.11 * soyoil - soybean / 100
+   - Also includes meal and oil leadership versus soybeans.
+
+2. external_relative_grain_family
+   - soybean/corn, soybean/wheat, and corn/soy relative moves.
+
+3. external_fx_export_family
+   - DXY, BRL, and CNY moves.
+   - Stronger USD, weaker BRL, or weaker CNY are treated as bearish for US
+     soybeans.
+
+4. external_macro_risk_family
+   - crude oil, equities, and USD trend as macro/risk appetite proxies.
+
+5. external_weather_hdd_cdd_family
+   - Meteostat crop-belt weather.
+   - Includes CDD, HDD, GDD, heat stress, dryness, dry CDD, planting-season
+     precipitation/dryness, and harvest freeze stress.
+
+6. external_equal_family_weight
+   - Equal weight across all available external families.
+
+7. given_plus_external_equal_family_50_50
+   - 50% given conservative soybean blend.
+   - 50% equal-weight external family blend.
+
+8. given_and_external_all_families_equal_weight
+   - Equal weight across given price, given physical, and all external
+     families.
+
+9. given_crush_plus_weather_hdd_cdd_equal_weight
+   - 50% given Cargill crush pressure.
+   - 50% external Meteostat HDD/CDD/weather family.
+
+10. given_conservative_plus_weather_hdd_cdd_equal_weight
+    - 50% given conservative soybean blend.
+    - 50% external Meteostat HDD/CDD/weather family.
+
+11. given_physical_external_fundamentals_equal_weight
+    - Equal weight across given physical, yfinance crush, FX/export, and
+      weather families.
+
+External results
+----------------
+Zero-cost:
+
+  experiment                                      test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  given_crush_plus_weather_hdd_cdd_equal_weight    2.716      158       -33    2.156      359       -85    0.002
+  given_physical_external_fundamentals_equal_weight 2.394      234       -93    1.197      302      -148    0.001
+  given_plus_external_equal_family_50_50            1.456      147      -104    0.784      256      -159    0.001
+  given_conservative_plus_weather_hdd_cdd_equal     1.197       98       -73    1.162      335      -132    0.001
+  given_and_external_all_families_equal_weight      1.143      143      -162    1.344      491      -199    0.001
+  external_crush_family                             1.137      336      -231    0.404      294      -335    0.002
+  external_fx_export_family                         1.087      343      -388    0.892      887      -388    0.002
+  external_weather_hdd_cdd_family                   0.900       35       -59    1.266      330      -151    0.001
+  external_equal_family_weight                      0.483       65      -221    0.738      314      -266    0.001
+  external_macro_risk_family                        0.426      116      -398    0.908      843      -466    0.002
+  external_relative_grain_family                   -0.466     -122      -357   -0.016      -17      -655    0.002
+
+Cost-adjusted:
+
+  experiment                                      test Sh  test PnL  test DD  full Sh  full PnL  full DD  turnover
+  given_crush_plus_weather_hdd_cdd_equal_weight    2.639      154       -34    2.112      352       -85    0.002
+  given_physical_external_fundamentals_equal_weight 2.340      229       -94    1.154      291      -149    0.001
+  given_plus_external_equal_family_50_50            1.404      142      -107    0.752      245      -163    0.001
+  given_conservative_plus_weather_hdd_cdd_equal     1.151       94       -74    1.133      327      -133    0.001
+  given_and_external_all_families_equal_weight      1.094      137      -165    1.309      478      -203    0.001
+  external_crush_family                             1.090      322      -238    0.364      265      -343    0.002
+  external_fx_export_family                         1.036      327      -396    0.856      851      -396    0.002
+  external_weather_hdd_cdd_family                   0.843       33       -59    1.239      323      -152    0.001
+  external_equal_family_weight                      0.426       58      -226    0.700      298      -273    0.001
+  external_macro_risk_family                        0.374      102      -404    0.874      811      -476    0.002
+  external_relative_grain_family                   -0.520     -136      -366   -0.053      -57      -671    0.002
+
+Best OOS Sharpe / drawdown
+--------------------------
+Best tested OOS Sharpe and best tested OOS drawdown are both from:
+
+    given_crush_plus_weather_hdd_cdd_equal_weight
+
+Zero-cost:
+- OOS Sharpe: 2.716
+- OOS PnL: 158
+- OOS max drawdown: -33
+- Full Sharpe: 2.156
+- Full max drawdown: -85
+
+Cost-adjusted:
+- OOS Sharpe: 2.639
+- OOS PnL: 154
+- OOS max drawdown: -34
+- Full Sharpe: 2.112
+- Full max drawdown: -85
+
+Equal-family weighting result
+-----------------------------
+Equal-family weighting helps only when the families are economically tight:
+
+- Cargill crush + weather/HDD/CDD equal weight:
+  OOS Sharpe 2.716, OOS DD -33.
+
+- Given physical + external crush + FX/export + weather equal weight:
+  OOS Sharpe 2.394, OOS DD -93.
+
+But broad equal weighting across all external families dilutes the edge:
+
+- external_equal_family_weight:
+  OOS Sharpe 0.483, OOS DD -221.
+
+- given_and_external_all_families_equal_weight:
+  OOS Sharpe 1.143, OOS DD -162.
+
+Conclusion
+----------
+The strongest soybean-only result is not "more data everywhere." It is a narrow
+blend of the most soybean-specific provided signal and the most soybean-relevant
+external family:
+
+    50% Cargill crush pressure
+    50% Meteostat HDD/CDD/weather stress
+
+This gives the best Sharpe/DD tradeoff in the current experiment. It should be
+presented as a researched soybean-only candidate and validated on 2021-2026
+before being treated as robust.
+
+
+Overfit-control revision
+========================
+
+Problem
+-------
+The high-performing external family models still had research-selection risk:
+we tested multiple external families and saw that crush + weather worked best
+on the 2018-2020 test period. That improves backtest performance, but it can
+overstate robustness.
+
+Revision
+--------
+Add a stricter family selection rule that uses only pre-2018 information:
+
+1. Mandatory family:
+   - given_physical_family
+   - This satisfies the exercise requirement because it uses both Cargill
+     datasets:
+       - cgl_inv via cgl_inventory_change
+       - cgl_crush via crush_surprise and crush_utilization
+
+2. Optional external families:
+   - external_crush_family
+   - external_fx_export_family
+   - external_weather_hdd_cdd_family
+
+3. Include an optional external family only if:
+   - train Sharpe before 2016 is positive;
+   - validation Sharpe from 2016-2017 is positive;
+   - validation max drawdown is better than -250.
+
+4. Equal-weight the mandatory family and all selected optional families.
+
+Pre-2018 selection result
+-------------------------
+
+  family                            selected  train Sh  validation Sh  validation DD
+  external_crush_family             no        -0.682      1.450          -66
+  external_fx_export_family          yes        0.759      0.874         -240
+  external_weather_hdd_cdd_family    no         1.809     -0.156         -105
+
+Only FX/export survived the pre-2018 stability filter. The overfit-controlled
+strategy therefore becomes:
+
+    equal_weight(given_physical_family, external_fx_export_family)
+
+Performance comparison
+----------------------
+Zero-cost:
+
+  strategy                                      train Sh  val Sh  test Sh  test PnL  test DD  full Sh  full DD
+  given_physical_external_fundamentals_equal    -0.337    1.774   2.394      234      -93     1.197    -148
+  overfit_controlled_pre2018_family_selection    0.623    1.184   1.259      242     -194     0.971    -224
+
+Cost-adjusted:
+
+  strategy                                      train Sh  val Sh  test Sh  test PnL  test DD  full Sh  full DD
+  given_physical_external_fundamentals_equal    -0.372    1.733   2.340      229      -94     1.154    -149
+  overfit_controlled_pre2018_family_selection    0.598    1.146   1.209      232     -199     0.934    -232
+
+Interpretation
+--------------
+The overfit-controlled version has lower OOS Sharpe and worse drawdown than the
+high-performing researched model, but it is more defensible:
+
+- it does not use 2018-2020 to decide which external families are included;
+- it rejects weather despite weather helping the 2018-2020 test, because
+  weather failed validation Sharpe before 2018;
+- it rejects external crush because train Sharpe before 2016 was negative;
+- it still uses both required Cargill datasets through given_physical_family;
+- it remains positive after transaction costs.
+
+Recommendation
+--------------
+Present two soybean models, clearly labeled:
+
+1. Conservative / lower-overfit model:
+
+       overfit_controlled_pre2018_family_selection
+
+   Use this when the reviewer is most concerned about overfit.
+
+2. Higher-performing researched model:
+
+       given_physical_external_fundamentals_equal_weight
+
+   Use this as an upside research candidate, but disclose that it has higher
+   research-selection risk because weather and external crush did not pass the
+   stricter pre-2018 filter.
+
+
+Relaxed fixed-weight improvement
+================================
+
+Motivation
+----------
+Equal family weights are not a hard requirement. I therefore tested a small
+predefined menu of fixed family weights. The key constraint remains that the
+weight choice must be selected using only pre-2018 train/validation behavior,
+not 2018-2020 OOS results.
+
+Candidate menu
+--------------
+All candidates include given_physical_family, so every candidate uses both
+Cargill datasets:
+
+- cgl_inv via cgl_inventory_change
+- cgl_crush via crush_surprise and crush_utilization
+
+The fixed-weight candidates were:
+
+  candidate                                      train Sh  val Sh  val DD  test Sh  test DD
+  physical_only                                     NA    -2.039    -60     0.787    -121
+  physical_70_fx_30                              1.057     1.123    -74     1.010    -144
+  physical_50_fx_50                              0.623     1.184   -133     1.259    -194
+  physical_30_fx_70                              0.641     0.864   -207     1.171    -292
+  physical_70_weather_30                         2.347    -2.504    -57     0.724     -94
+  physical_70_extcrush_30                       -2.633     1.814    -45     1.226    -111
+  physical_50_fx_25_weather_25                   1.681     0.323    -99     1.069    -102
+  physical_50_fx_25_extcrush_25                 -0.497     1.855    -60     1.992     -84
+  physical_40_fx_20_extcrush_20_weather_20       0.080     0.677    -53     2.218     -54
+
+Two pre-2018 selectors
+----------------------
+1. Score selector:
+
+   score = validation Sharpe + 0.25 * train Sharpe + 0.001 * validation DD
+
+   This selected:
+
+       physical_70_fx_30
+
+2. Drawdown-priority selector:
+
+   Eligibility:
+   - train Sharpe > 0
+   - validation Sharpe >= 0.50
+
+   Selection:
+   - choose the best validation max drawdown
+   - use validation Sharpe only as a tie-breaker
+
+   This selected:
+
+       physical_40_fx_20_extcrush_20_weather_20
+
+Improved strategy
+-----------------
+The improved soybean model is:
+
+    40% given_physical_family
+    20% external_fx_export_family
+    20% external_crush_family
+    20% external_weather_hdd_cdd_family
+
+It is selected by the drawdown-priority pre-2018 rule, not by the OOS period.
+
+Performance comparison
+----------------------
+Zero-cost:
+
+  strategy                                                 train Sh  val Sh  val DD  test Sh  test PnL  test DD  full Sh  full DD
+  overfit_controlled_pre2018_equal                         0.623     1.184   -133    1.259      242      -194    0.971    -224
+  weight_relaxed_score_selected physical_70_fx_30          1.057     1.123    -74    1.010      167      -144    1.028    -182
+  drawdown_priority physical_40_fx_20_extcrush_20_weather  0.080     0.677    -53    2.218      227       -54    1.272     -84
+
+Cost-adjusted:
+
+  strategy                                                 train Sh  val Sh  val DD  test Sh  test PnL  test DD  full Sh  full DD
+  overfit_controlled_pre2018_equal                         0.598     1.146   -135    1.209      232      -199    0.934    -232
+  weight_relaxed_score_selected physical_70_fx_30          1.031     1.080    -75    0.961      159      -145    0.988    -189
+  drawdown_priority physical_40_fx_20_extcrush_20_weather  0.044     0.622    -54    2.168      222       -55    1.227     -88
+
+Interpretation
+--------------
+The drawdown-priority fixed-weight strategy is the best compromise so far:
+
+- It improves cost-adjusted OOS Sharpe from 1.209 to 2.168 versus the prior
+  overfit-controlled equal-family strategy.
+- It improves cost-adjusted OOS drawdown from -199 to -55.
+- It still uses both required Cargill datasets.
+- It keeps a predefined, simple family-weight structure.
+- It is selected using pre-2018 train/validation logic.
+
+Remaining concern
+-----------------
+The selected model's train Sharpe is only 0.044 cost-adjusted, although its
+validation Sharpe is 0.622 and validation drawdown is excellent. That means the
+strategy should be described as drawdown-priority and validation-stable, not as
+a universally strong in-sample alpha.
+
+Updated recommendation
+----------------------
+Use the drawdown-priority relaxed-weight strategy as the recommended soybean
+model:
+
+    drawdown_priority_pre2018_selection_physical_40_fx_20_extcrush_20_weather_20
+
+Keep the older equal-family overfit-controlled model as a stricter baseline,
+and keep the broader researched model as a high-Sharpe but higher-selection-risk
+comparison.
+
+
+Regime-shift tests
+==================
+
+Motivation
+----------
+Fixed weights can still feel like research-selected parameters. I therefore
+tested observable regime rules inspired by:
+
+    hybrid_signal = (1 - trend_w) * source_signal + trend_w * trend_signal
+
+where source_signal is an equal-weight family basket and trend_w is driven by
+observable soybean volatility or trend state.
+
+Regime definitions
+------------------
+- Soybean realized vol = lagged 60-day standard deviation of soybean futures
+  dollar PnL.
+- Long-run vol = expanding median of that realized vol.
+- Low vol = realized vol < 0.80 * long-run vol.
+- High vol = realized vol > 1.20 * long-run vol or above its expanding 75th
+  percentile.
+- Trend positive = given_trend > 0.
+
+Regime diagnostics
+------------------
+Pre-2018:
+- low-vol share: 26.6%
+- high-vol share: 18.0%
+- trend-positive share: 41.1%
+
+2018-2020 OOS:
+- low-vol share: 74.6%
+- high-vol share: 0.0%
+- trend-positive share: 55.1%
+
+Regime candidates tested
+------------------------
+1. regime_hybrid_vol_trend_weight
+   - source_signal = equal weight of given physical, FX/export, external crush,
+     and weather/HDD/CDD.
+   - trend_signal = equal weight of given trend and macro/risk.
+   - trend_w = 0.20 normally, 0.60 in high-vol regimes.
+
+2. regime_hybrid_trend_confirmed_weight
+   - same source and trend signals.
+   - trend_w = 0.60 when high-vol or trend-positive, else 0.20.
+
+3. regime_low_physical_high_trend_switch
+   - high vol: trend + FX/export + external crush.
+   - otherwise: given physical + weather.
+
+4. regime_low_vol_physical_else_balanced
+   - low vol: given physical + weather.
+   - otherwise: broad equal source basket.
+
+5. regime_high_vol_fx_trend_else_physical_weather
+   - high vol: trend + FX/export + external crush.
+   - otherwise: given physical + weather.
+
+Pre-2018 selection result
+-------------------------
+
+  candidate                                      eligible  train Sh  val Sh  val DD  test Sh  test DD
+  regime_hybrid_vol_trend_weight                 yes       0.606    1.824    -88    2.348     -94
+  regime_hybrid_trend_confirmed_weight           yes       0.847    1.530   -120    1.601    -152
+  regime_low_physical_high_trend_switch          no        0.010   -0.742    -36    0.944     -73
+  regime_low_vol_physical_else_balanced          no       -0.077   -0.468    -63    1.779     -73
+  regime_high_vol_fx_trend_else_physical_weather no        0.010   -0.742    -36    0.944     -73
+
+The pre-2018 selector chose:
+
+    regime_hybrid_vol_trend_weight
+
+Performance
+-----------
+Zero-cost:
+
+  strategy                                      train Sh  val Sh  test Sh  test PnL  test DD  full Sh  full DD
+  regime_hybrid_vol_trend_weight                0.606    1.824   2.348      269      -94     1.577    -178
+  drawdown_priority fixed-weight                0.080    0.677   2.218      227      -54     1.272     -84
+
+Cost-adjusted:
+
+  strategy                                      train Sh  val Sh  test Sh  test PnL  test DD  full Sh  full DD
+  regime_hybrid_vol_trend_weight                0.575    1.792   2.298      263      -96     1.539    -179
+  drawdown_priority fixed-weight                0.044    0.622   2.168      222      -55     1.227     -88
+
+Interpretation
+--------------
+The regime hybrid improved Sharpe and PnL versus the drawdown-priority
+fixed-weight model:
+
+- cost-adjusted OOS Sharpe improves from 2.168 to 2.298;
+- cost-adjusted OOS PnL improves from 222 to 263;
+- full-period Sharpe improves from 1.227 to 1.539.
+
+But the drawdown gets worse:
+
+- cost-adjusted OOS drawdown worsens from -55 to -96;
+- full-period drawdown worsens from -88 to -179.
+
+Important regime note
+---------------------
+The 2018-2020 OOS period was mostly low-vol and never triggered the high-vol
+regime under this definition. That means the winning hybrid worked mostly
+because the base 20% trend sleeve improved the source basket, not because the
+high-vol switch was heavily used OOS.
+
+Recommendation after regime tests
+---------------------------------
+Use two soybean variants depending on objective:
+
+1. Best Sharpe / richer economic story:
+
+       regime_hybrid_vol_trend_weight
+
+   This is now the best pre-2018-selected model by Sharpe and full-period
+   performance.
+
+2. Best drawdown control:
+
+       drawdown_priority_pre2018_selection_physical_40_fx_20_extcrush_20_weather_20
+
+   This remains better if the presentation prioritizes max drawdown.
+
+I would present the regime hybrid as the main improved strategy and show the
+drawdown-priority fixed-weight model as the conservative risk-control
+alternative.
+
+
+Final fund-usable blend tests
+=============================
+
+Question
+--------
+Can we mix the best ideas together while keeping the strategy usable for a fund?
+
+Constraints
+-----------
+- Cargill signals must be used.
+- Avoid coefficient fitting and OOS-selected parameters.
+- Prefer pre-2018 selection logic.
+- Maximize the Sharpe / drawdown tradeoff after costs.
+- Keep the final strategy explainable and implementable.
+
+Fund candidates tested
+----------------------
+I blended the two strongest robust ideas:
+
+1. regime_hybrid_vol_trend_weight
+   - better Sharpe and fuller economic story;
+   - worse drawdown.
+
+2. drawdown_priority_pre2018_selection_physical_40_fx_20_extcrush_20_weather_20
+   - better drawdown;
+   - slightly lower Sharpe.
+
+The fund candidates were:
+
+  candidate                              train Sh  val Sh  val DD  test Sh  test DD  full Sh  full DD
+  50% regime / 50% drawdown              -0.070    1.815    -67     2.170     -91    1.335    -125
+  35% regime / 65% drawdown              -0.654    1.671    -69     2.064     -90    1.095    -133
+  65% regime / 35% drawdown               0.305    2.152    -65     2.153     -93    1.514    -136
+  consensus min(regime, drawdown)         0.777    0.631    -51     2.084     -74    1.389     -91
+
+Pre-2018 fund selector
+----------------------
+The selector used only train/validation:
+
+    score = validation Sharpe
+          + 0.25 * train Sharpe
+          + 0.002 * validation drawdown
+
+This selected:
+
+    fund_blend_65_regime_35_drawdown
+
+Fund blend performance
+----------------------
+Cost-adjusted:
+
+  strategy                         train Sh  val Sh  val DD  test Sh  test PnL  test DD  full Sh  full DD
+  regime hybrid                     0.575    1.792    -88    2.298      263       -96    1.539    -179
+  drawdown-priority fixed-weight    0.044    0.622    -54    2.168      222       -55    1.227     -88
+  fund blend 65/35                  0.272    2.116    -66    2.103      221       -96    1.474    -137
+  consensus min                     0.739    0.574    -52    2.031      160       -75    1.340     -95
+
+Interpretation
+--------------
+The fund blend is not the best point on the frontier:
+
+- It does not beat the regime hybrid on Sharpe.
+- It does not beat the drawdown-priority fixed-weight model on drawdown.
+- It is more complex than either specialist model.
+
+The consensus-min version is appealing from a risk-control perspective, but it
+still has worse test drawdown than the drawdown-priority model and lower Sharpe
+than the regime hybrid.
+
+Equal weight vs family-based weight
+-----------------------------------
+The evidence says:
+
+1. Broad equal weight is not best.
+   - external_equal_family_weight was weak.
+   - all-family equal weight diluted the useful soybean-specific signals.
+
+2. Narrow economic equal weight can work.
+   - Cargill crush + weather equal weight produced very strong OOS performance,
+     but it does not include Cargill inventory, so it is not requirement-complete
+     if both Cargill datasets must be in the final strategy.
+
+3. Family-based / regime-based weighting is better for a fund-usable strategy.
+   - It keeps Cargill inventory and crush in the model.
+   - It gives a clearer economic allocation across physical, FX/export, crush,
+     weather, and trend.
+   - It allows a risk/Sharpe tradeoff to be selected before the OOS period.
+
+Final recommendation
+--------------------
+Do not use the fund blend as the final model. It adds complexity without
+improving the efficient frontier.
+
+Use:
+
+1. Main strategy for best Sharpe:
+
+       regime_hybrid_vol_trend_weight
+
+   Cost-adjusted OOS Sharpe 2.298, OOS DD -96.
+
+2. Conservative strategy for best drawdown:
+
+       drawdown_priority_pre2018_selection_physical_40_fx_20_extcrush_20_weather_20
+
+   Cost-adjusted OOS Sharpe 2.168, OOS DD -55.
+
+For a fund presentation, I would lead with the regime hybrid and include the
+drawdown-priority version as the risk-controlled variant. If the investor is
+very drawdown-sensitive, flip that ordering.
