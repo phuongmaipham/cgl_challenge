@@ -22,50 +22,38 @@ def clean_signal(series, target_index):
     )
 
 
-def _as_signal_list(members):
-    if isinstance(members, dict):
-        return list(members.values())
-    return list(members)
+def _flatten(members):
+    return list(members.values()) if isinstance(members, dict) else list(members)
 
 
-def signal_average(signals, target_index):
-    values = [signal.reindex(target_index) for signal in signals if signal is not None]
+def _mean_signals(signals, target_index):
+    values = [pd.Series(s, index=target_index) for s in signals if s is not None]
     if not values:
         return pd.Series(0.0, index=target_index)
     return clean_signal(pd.concat(values, axis=1).mean(axis=1), target_index)
 
 
 def family_average(families, target_index):
-    signals = []
-    for members in families.values():
-        signals.extend(_as_signal_list(members))
-    return signal_average(signals, target_index)
+    return _mean_signals([s for m in families.values() for s in _flatten(m)], target_index)
 
 
 def equal_family(families, target_index):
-    family_signals = [
-        signal_average(_as_signal_list(members), target_index)
-        for members in families.values()
-    ]
-    return signal_average(family_signals, target_index)
+    return _mean_signals(
+        [_mean_signals(_flatten(m), target_index) for m in families.values()],
+        target_index,
+    )
 
 
 def family_feature_frame(families, target_index):
-    return pd.DataFrame({
-        name: signal_average(_as_signal_list(members), target_index)
-        for name, members in families.items()
-    }, index=target_index).fillna(0.0)
-
-
-def _trend_panel_for_tests(trend_panel, families, features, target_index):
-    if callable(trend_panel):
-        return trend_panel(families, features, target_index)
-    return trend_panel
+    return pd.DataFrame(
+        {name: _mean_signals(_flatten(m), target_index) for name, m in families.items()},
+        index=target_index,
+    ).fillna(0.0)
 
 
 def make_family_tests(families, target, target_index, trend_panel):
     features = family_feature_frame(families, target_index)
-    trend_source = _trend_panel_for_tests(trend_panel, families, features, target_index)
+    trend_source = trend_panel(families, features, target_index) if callable(trend_panel) else trend_panel
     return {
         "avg_all_signals": family_average(families, target_index),
         "equal_family": equal_family(families, target_index),
@@ -98,14 +86,22 @@ def run_family_tests(
         )
         for strategy, signal in tests.items():
             bt = backtest_for_signal(signal)
-            row = row_for_backtest(signal_set, strategy, bt)
-            rows.append(row)
+            rows.append(row_for_backtest(signal_set, strategy, bt))
             key = (signal_set, strategy, key_mode)
             backtests[key] = bt
             if position_for_signal is not None:
                 positions[key] = position_for_signal(signal)
     results = pd.DataFrame(rows).sort_values(list(sort_columns), ascending=list(ascending))
     return {"results": results, "backtests": backtests, "positions": positions}
+
+
+def _shaped_signal(signal, target_index, halflife, threshold):
+    s = clean_signal(signal, target_index)
+    s = pd.Series(np.tanh(s / 2.0), index=target_index).ewm(
+        halflife=float(halflife), adjust=False, min_periods=1
+    ).mean()
+    s[s.abs() < float(threshold)] = 0.0
+    return s
 
 
 def positions_from_signal(
@@ -118,22 +114,15 @@ def positions_from_signal(
     threshold=0.05,
     mode="long_short",
 ):
-    signal = clean_signal(signal, pnl.index)
-    signal = pd.Series(np.tanh(signal / 2.0), index=pnl.index)
-    signal = signal.ewm(halflife=float(halflife), adjust=False, min_periods=1).mean()
-    signal[signal.abs() < float(threshold)] = 0.0
+    s = _shaped_signal(signal, pnl.index, halflife, threshold)
     if mode == "long_only":
-        signal = signal.clip(lower=0.0)
+        s = s.clip(lower=0.0)
     elif mode == "short_only":
-        signal = signal.clip(upper=0.0)
+        s = s.clip(upper=0.0)
     elif mode != "long_short":
         raise ValueError(f"Unknown mode: {mode}")
     vol = pnl[commodity].rolling(60, min_periods=20).std().shift(1).replace(0.0, np.nan)
-    lots = (signal * float(target_daily_vol) / vol).clip(-float(max_abs_lot), float(max_abs_lot)).fillna(0.0)
-    if mode == "long_only":
-        lots = lots.clip(lower=0.0)
-    elif mode == "short_only":
-        lots = lots.clip(upper=0.0)
+    lots = (s * float(target_daily_vol) / vol).clip(-float(max_abs_lot), float(max_abs_lot)).fillna(0.0)
     return pd.DataFrame({commodity: lots}, index=pnl.index)
 
 
@@ -151,71 +140,30 @@ def backtest_signal(
     mode="long_short",
 ):
     positions = positions_from_signal(
-        signal,
-        pnl,
-        commodity,
-        target_daily_vol=target_daily_vol,
-        max_abs_lot=max_abs_lot,
-        halflife=halflife,
-        threshold=threshold,
-        mode=mode,
+        signal, pnl, commodity,
+        target_daily_vol=target_daily_vol, max_abs_lot=max_abs_lot,
+        halflife=halflife, threshold=threshold, mode=mode,
     )
     return backtest_positions_with_costs(
-        positions,
-        pnl,
+        positions, pnl,
         trade_cost_per_lot=trade_cost_per_lot,
         holding_cost_rate=holding_cost_rate,
         margin_per_lot=margin_per_lot,
     )[0]
 
 
+_METRIC_INPUT_KEYS = ("days", "total_pnl", "sharpe", "max_drawdown", "hit_rate", "avg_daily_turnover", "avg_gross_exposure")
+_METRIC_OUTPUT_KEYS = _METRIC_INPUT_KEYS + ("turnover",)
+
+
 def active_metrics(bt, mask=None):
-    sample_bt = bt if mask is None else bt.loc[mask]
-    metrics = performance_metrics(sample_bt)
+    sample = bt if mask is None else bt.loc[mask]
+    metrics = performance_metrics(sample)
     if metrics.empty:
-        return {
-            "days": np.nan,
-            "total_pnl": np.nan,
-            "sharpe": np.nan,
-            "max_drawdown": np.nan,
-            "hit_rate": np.nan,
-            "turnover": np.nan,
-            "avg_daily_turnover": np.nan,
-            "avg_gross_exposure": np.nan,
-        }
-    return {
-        "days": metrics.get("days", np.nan),
-        "total_pnl": metrics.get("total_pnl", np.nan),
-        "sharpe": metrics.get("sharpe", np.nan),
-        "max_drawdown": metrics.get("max_drawdown", np.nan),
-        "hit_rate": metrics.get("hit_rate", np.nan),
-        "turnover": metrics.get("avg_daily_turnover", np.nan),
-        "avg_daily_turnover": metrics.get("avg_daily_turnover", np.nan),
-        "avg_gross_exposure": metrics.get("avg_gross_exposure", np.nan),
-    }
-
-
-def split_masks(index, train_end, oos_start):
-    train_end = pd.Timestamp(train_end)
-    oos_start = pd.Timestamp(oos_start)
-    return {
-        "train": pd.Series(index < train_end, index=index),
-        "validation": pd.Series((index >= train_end) & (index < oos_start), index=index),
-        "test": pd.Series(index >= oos_start, index=index),
-    }
-
-
-def rank_ic(signal, target, mask):
-    aligned = pd.concat([signal, target], axis=1).dropna()
-    if aligned.empty:
-        return np.nan
-    mask = pd.Series(mask, index=signal.index).reindex(aligned.index).fillna(False).astype(bool)
-    aligned = aligned.loc[mask]
-    if len(aligned) < 40 or aligned.iloc[:, 0].std() == 0.0 or aligned.iloc[:, 1].std() == 0.0:
-        return np.nan
-    ranks = aligned.rank(method="average")
-    corr = ranks.iloc[:, 0].corr(ranks.iloc[:, 1])
-    return float(corr) if pd.notnull(corr) else np.nan
+        return {k: np.nan for k in _METRIC_OUTPUT_KEYS}
+    out = {k: metrics.get(k, np.nan) for k in _METRIC_INPUT_KEYS}
+    out["turnover"] = out["avg_daily_turnover"]
+    return out
 
 
 def metric_row(label, bt, train_end, oos_start, dd_capital_usd, mode="long_short"):
@@ -312,26 +260,26 @@ def _period_label(item):
 
 
 def period_metrics(bt, periods=REGIME_PERIODS):
-    rows = []
     active_index = bt.index[bt["held_gross_exposure"] > 1.0e-12]
     first_active = active_index.min() if len(active_index) else None
     last_active = active_index.max() if len(active_index) else None
+    rows = []
     for item in periods:
         start = pd.Timestamp(item["start"])
         end = pd.Timestamp(item["end"])
         mask = (bt.index >= start) & (bt.index <= end)
         metrics = active_metrics(bt, mask)
         active_days = 0 if pd.isnull(metrics["days"]) else int(metrics["days"])
-        note = ""
-        if active_days == 0:
-            if first_active is None:
-                note = "strategy never active"
-            elif end < first_active:
-                note = f"before first active trade ({first_active.year})"
-            elif start > last_active:
-                note = f"after last active trade ({last_active.year})"
-            else:
-                note = "strategy flat in this period"
+        if active_days:
+            note = ""
+        elif first_active is None:
+            note = "strategy never active"
+        elif end < first_active:
+            note = f"before first active trade ({first_active.year})"
+        elif start > last_active:
+            note = f"after last active trade ({last_active.year})"
+        else:
+            note = "strategy flat in this period"
         rows.append({
             "period": _period_label(item),
             "start": start,
@@ -377,18 +325,11 @@ def best_family_by_trend_mr(families, panel, target_index):
 
 
 def named_period_check(bt, dd_capital_usd, periods=REGIME_PERIODS):
-    rows = []
-    for _, m in period_metrics(bt, periods).iterrows():
-        rows.append({
-            "period": m["period"],
-            "total_pnl": m["total_pnl"],
-            "sharpe": m["sharpe"],
-            "max_dd_pct": m["max_drawdown"] / dd_capital_usd * 100.0 if pd.notnull(m["max_drawdown"]) else np.nan,
-            "hit_rate": m["hit_rate"],
-            "active_days": m["active_days"],
-            "note": m["note"],
-        })
-    return pd.DataFrame(rows)
+    df = period_metrics(bt, periods)[
+        ["period", "total_pnl", "sharpe", "max_drawdown", "hit_rate", "active_days", "note"]
+    ].copy()
+    df["max_dd_pct"] = df["max_drawdown"] / dd_capital_usd * 100.0
+    return df[["period", "total_pnl", "sharpe", "max_dd_pct", "hit_rate", "active_days", "note"]]
 
 
 def pair_components(panel):
@@ -433,17 +374,11 @@ def wheat_pair_positions(
     halflife=5.0,
     rebalance_every=5,
 ):
-    signal = clean_signal(signal, pnl.index)
-    signal = pd.Series(np.tanh(signal / 2.0), index=pnl.index).ewm(
-        halflife=halflife,
-        adjust=False,
-        min_periods=1,
-    ).mean()
-    signal[signal.abs() < signal_threshold] = 0.0
+    s = _shaped_signal(signal, pnl.index, halflife, signal_threshold)
     vol = pnl[list(wheat)].rolling(60, min_periods=20).std().shift(1).replace(0.0, np.nan)
     positions = pd.DataFrame(0.0, index=pnl.index, columns=list(wheat))
-    positions[wheat[0]] = (signal * target_daily_pair_vol / vol[wheat[0]]).clip(-max_leg_lot, max_leg_lot)
-    positions[wheat[1]] = (-signal * target_daily_pair_vol / vol[wheat[1]]).clip(-max_leg_lot, max_leg_lot)
+    positions[wheat[0]] = (s * target_daily_pair_vol / vol[wheat[0]]).clip(-max_leg_lot, max_leg_lot)
+    positions[wheat[1]] = (-s * target_daily_pair_vol / vol[wheat[1]]).clip(-max_leg_lot, max_leg_lot)
     positions = positions.fillna(0.0)
     if rebalance_every > 1:
         rebalance_mask = pd.Series(False, index=positions.index)
@@ -470,6 +405,4 @@ def backtest_pair(
 
 
 def pair_metric_row(label, bt, train_end, oos_start, dd_capital_usd):
-    row = metric_row(label, bt, train_end, oos_start, dd_capital_usd)
-    row["book"] = "SRW_HRW_PAIR"
-    return row
+    return {**metric_row(label, bt, train_end, oos_start, dd_capital_usd), "book": "SRW_HRW_PAIR"}

@@ -1,0 +1,107 @@
+{
+  "COMMODITIES": ["CORN", "SOYABEAN", "WHEAT_SRW", "WHEAT_HRW"],
+  "OUTRIGHT_CORE_FEATURES": [
+    "mom_60",
+    "rev_5",
+    "curve_spread",
+    "curve_ratio",
+    "cot_mm_level",
+    "cot_pm_oi_level"
+  ],
+  "OUTRIGHT_PHYSICAL_FEATURES": [
+    "public_inventory_change",
+    "receipts_change",
+    "cgl_inventory_change",
+    "crush_surprise",
+    "crush_utilization"
+  ],
+  "COST_CASES": [
+    {
+      "case": "zero_cost_no_margin_cap",
+      "trade_cost_per_lot": 0.0,
+      "holding_cost_rate": 0.0,
+      "margin_budget": null,
+      "description": "Research baseline with no transaction or funding costs."
+    },
+    {
+      "case": "market_assumption",
+      "trade_cost_per_lot": 8.75,
+      "holding_cost_rate": 0.05,
+      "margin_budget": null,
+      "description": "Approx. 0.5 tick bid/ask plus commissions/fees, 5% annual margin funding."
+    },
+    {
+      "case": "market_assumption_margin_cap",
+      "trade_cost_per_lot": 8.75,
+      "holding_cost_rate": 0.05,
+      "margin_budget": 2500.0,
+      "description": "Market cost assumption plus a 2,500 USD margin budget per aggregate book."
+    },
+    {
+      "case": "stress_cost_margin_cap",
+      "trade_cost_per_lot": 15.0,
+      "holding_cost_rate": 0.08,
+      "margin_budget": 2500.0,
+      "description": "Stress case: wider execution cost, higher funding rate, same margin budget."
+    }
+  ],
+  "FINAL_BLEND_WEIGHTS": {
+    "skip_rebalance": 0.50,
+    "multi_condition": 0.50
+  },
+  "FINAL_OPPORTUNITY_QUANTILES": {
+    "prediction": 0.40,
+    "curve": 0.40,
+    "momentum": 0.40
+  },
+  "REGIME_PERIODS": [
+    {
+      "period": "Russian drought/export ban shock",
+      "start": "2010-07-01",
+      "end": "2011-06-30",
+      "reason": "Russian heat wave, drought, and grain export ban lifted in mid-2011."
+    },
+    {
+      "period": "US drought rally/retrace",
+      "start": "2012-06-01",
+      "end": "2013-05-31",
+      "reason": "Historic US drought drove corn/soybean/wheat price shock and later retrace."
+    },
+    {
+      "period": "Crimea/Black Sea shock",
+      "start": "2014-02-15",
+      "end": "2014-05-31",
+      "reason": "Ukraine/Crimea crisis raised Black Sea wheat and corn export risk."
+    },
+    {
+      "period": "Low-price abundant supply",
+      "start": "2014-06-01",
+      "end": "2017-12-31",
+      "reason": "Post-drought supply rebuild and generally lower grain price regime."
+    },
+    {
+      "period": "US-China trade war",
+      "start": "2018-07-06",
+      "end": "2020-01-15",
+      "reason": "Tariff escalation hit US soybean demand until the Phase One agreement."
+    },
+    {
+      "period": "2019 prevented planting floods",
+      "start": "2019-05-01",
+      "end": "2019-07-31",
+      "reason": "Wet spring and Midwest flooding delayed corn and soybean planting."
+    },
+    {
+      "period": "COVID demand shock",
+      "start": "2020-02-24",
+      "end": "2020-06-30",
+      "reason": "COVID restrictions reduced gasoline/ethanol demand and changed food demand."
+    },
+    {
+      "period": "COVID recovery/China buying",
+      "start": "2020-07-01",
+      "end": "2020-12-31",
+      "reason": "Recovery phase with stronger Chinese buying and post-shock grain repricing."
+    }
+  ]
+}

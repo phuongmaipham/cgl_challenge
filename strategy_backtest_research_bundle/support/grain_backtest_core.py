@@ -29,29 +29,20 @@ def _read_indexed_numeric_csv(data_dir, filename):
 
 def load_train_set(data_dir="train_set"):
     """Load every train-set CSV into a dict of DataFrames keyed by dataset name."""
-    return {
-        key: _read_indexed_numeric_csv(data_dir, filename)
-        for key, filename in TRAIN_SET_FILES.items()
-    }
+    return {key: _read_indexed_numeric_csv(data_dir, fn) for key, fn in TRAIN_SET_FILES.items()}
 
 
 def to_available_calendar(df, trading_index, lag_days):
     """Shift observations to their first usable date, then forward-fill."""
     out = df.copy()
     out.index = pd.to_datetime(out.index) + pd.DateOffset(days=int(lag_days))
-    out = out.sort_index()
-    out = out.groupby(out.index).last()
-    return out.reindex(trading_index).ffill()
+    return out.sort_index().groupby(level=0).last().reindex(trading_index).ffill()
 
 
 def rolling_zscore(df, window=252, min_periods=40):
     mean = df.rolling(window=window, min_periods=min_periods).mean()
     std = df.rolling(window=window, min_periods=min_periods).std()
     return (df - mean) / std.replace(0.0, np.nan)
-
-
-def _signed_clip(df, limit=5.0):
-    return df.clip(lower=-limit, upper=limit)
 
 
 def build_feature_panels(data):
@@ -104,12 +95,13 @@ def build_feature_panels(data):
 
     panels = {}
     for commodity in COMMODITIES:
-        frame = pd.DataFrame(index=trading_index)
-        for feature_name, block in base_feature_blocks.items():
-            frame[feature_name] = block[commodity]
-        for feature_name in crush_features.columns:
-            frame[feature_name] = crush_features[feature_name]
-        panels[commodity] = _signed_clip(frame)
+        frame = pd.DataFrame(
+            {name: block[commodity] for name, block in base_feature_blocks.items()},
+            index=trading_index,
+        )
+        for col in crush_features.columns:
+            frame[col] = crush_features[col]
+        panels[commodity] = frame.clip(-5.0, 5.0)
 
     return panels, futures_pnl
 
@@ -120,14 +112,12 @@ def _margin_frame(columns, margin_per_lot=None):
     values = {}
     for column in columns:
         key = str(column)
-        if key.startswith("OUT_"):
-            key = key[4:]
-        if key.startswith("CAL_"):
-            key = key[4:]
+        for prefix in ("OUT_", "CAL_"):
+            if key.startswith(prefix):
+                key = key[len(prefix):]
         values[column] = float(margin_per_lot.get(key, np.nan))
-    fallback = np.nanmedian([v for v in values.values() if pd.notnull(v)])
-    if not pd.notnull(fallback):
-        fallback = 2500.0
+    finite = [v for v in values.values() if pd.notnull(v)]
+    fallback = float(np.nanmedian(finite)) if finite else 2500.0
     return pd.Series({k: (fallback if pd.isnull(v) else v) for k, v in values.items()})
 
 
@@ -182,28 +172,24 @@ def backtest_positions_with_costs(
 
 def performance_metrics(bt, split_date=None):
     """Compute dollar-PnL performance metrics."""
-    active = bt["held_gross_exposure"] > 1.0e-12
-    pnl = bt.loc[active, "net_pnl"].dropna()
+    pnl = bt.loc[bt["held_gross_exposure"] > 1.0e-12, "net_pnl"].dropna()
     if len(pnl) == 0:
         return pd.Series(dtype=float)
     ann_factor = 252.0
     avg = pnl.mean()
     vol = pnl.std()
-    sharpe = np.nan if vol == 0.0 else (avg / vol) * np.sqrt(ann_factor)
     cum = pnl.cumsum()
-    drawdown = cum - cum.cummax()
-    metrics = {
+    out = pd.Series({
         "days": float(len(pnl)),
         "total_pnl": float(pnl.sum()),
         "annualized_avg_pnl": float(avg * ann_factor),
         "annualized_vol": float(vol * np.sqrt(ann_factor)),
-        "sharpe": float(sharpe) if pd.notnull(sharpe) else np.nan,
-        "max_drawdown": float(drawdown.min()),
+        "sharpe": np.nan if vol == 0.0 else float((avg / vol) * np.sqrt(ann_factor)),
+        "max_drawdown": float((cum - cum.cummax()).min()),
         "hit_rate": float((pnl > 0.0).mean()),
         "avg_daily_turnover": float(bt["turnover"].reindex(pnl.index).mean()),
         "avg_gross_exposure": float(bt["gross_exposure"].reindex(pnl.index).mean()),
-    }
-    out = pd.Series(metrics)
+    })
     if split_date is not None:
         out.name = str(split_date)
     return out
@@ -211,12 +197,8 @@ def performance_metrics(bt, split_date=None):
 
 def split_performance(bt, split_date):
     split_date = pd.Timestamp(split_date)
-    before = bt.loc[bt.index < split_date]
-    after = bt.loc[bt.index >= split_date]
-    return pd.DataFrame(
-        {
-            "in_sample": performance_metrics(before),
-            "out_of_sample": performance_metrics(after),
-            "full_period": performance_metrics(bt),
-        }
-    )
+    return pd.DataFrame({
+        "in_sample": performance_metrics(bt.loc[bt.index < split_date]),
+        "out_of_sample": performance_metrics(bt.loc[bt.index >= split_date]),
+        "full_period": performance_metrics(bt),
+    })
